@@ -14,14 +14,14 @@ const flowPedido = addKeyword(['__Flujo De Pedido Completo__'])
         'Escribe solo el *número* del platillo que deseas:\n\n',
         { 
         capture: true 
-    }, async (ctx, { state, fallBack,flowDynamic,endFlow }) => { // <- Añade fallBack aquí
+    }, async (ctx, { state, fallBack,flowDynamic,gotoFlow,endFlow }) => { // <- Añade fallBack aquí
         try {
-           
+            reset(ctx, gotoFlow, 60000); 
             const menu = await menuAPI();
 
             // Si el menú viene vacío o no existe
 if (!menu || menu.length === 0) {
-    
+    stop(ctx);
     return endFlow('⚠️ El menú de hoy ha sido modificado o eliminado. Por favor, escribe "hola" para comenzar de nuevo.');
 } 
             await state.update({ menu });
@@ -49,24 +49,28 @@ El platillo  que seleccionaste(${pedido.nombre_platillo}) ya no está disponible
              
             });
 
-   
-       
+         
+
+            // await flowDynamic(`✅ Has pedido: ${pedido.body} `);
 
             
         } catch (error) {
             console.error('Error:', error);
-            
+            stop(ctx);
             return  endFlow('❌ Ocurrió un error. Intenta de nuevo escribiendo *HOLA*:'); 
         }
-    }).addAnswer('sos nasty',null,  async (ctx, { state,flowDynamic }) => {
-        const myState = state.getMyState();
-
-        await flowDynamic(`✅ Has pedido: ${myState.nombre_platillo}`);
-    }).addAnswer('🔢 ¿Cuántas unidades deseas pedir?', { 
+    })    .addAnswer(null,
+        async (ctx, { state,flowDynamic }) => {
+            const { pedidoBody } = state.getMyState();
+            await flowDynamic(`✅ Has pedido: ${pedidoBody} `);
+          
+        }
+    )
+    .addAnswer('🔢 ¿Cuántas unidades deseas pedir?', { 
         capture: true 
     }, async (ctx, { state, fallBack,endFlow, gotoFlow }) => {
         try {
-          
+            reset(ctx, gotoFlow, 60000);
             const myState = state.getMyState();
             const cantidad = parseInt(ctx.body);
             
@@ -89,7 +93,7 @@ El platillo  que seleccionaste(${pedido.nombre_platillo}) ya no está disponible
             
             
         } catch (error) {
-            
+            stop(ctx);
             return  endFlow('❌ Ocurrió un error. Intenta de nuevo escribiendo *HOLA*:'); 
         }
     }).addAnswer(
@@ -101,7 +105,7 @@ El platillo  que seleccionaste(${pedido.nombre_platillo}) ya no está disponible
         }, 
         async (ctx, { state, fallBack }) => {
             try {
-                console.log('Mensaje recibido:', ctx); // Para depuración
+                reset(ctx, gotoFlow, 60000); 
                 
                 // Verificar si es una ubicación válida (nueva estructura)
                 if (ctx.type !== 'location' || !ctx.lat || !ctx.lng) {
@@ -116,11 +120,10 @@ El platillo  que seleccionaste(${pedido.nombre_platillo}) ya no está disponible
                         timestamp: ctx.timestamp
                     } 
                 });
-                
-                // Opcional: Confirmar recepción
-                return '📍 ¡Ubicación recibida correctamente!';
+
                 
             } catch (error) {
+                stop(ctx);
                 console.error('Error procesando ubicación:', error);
                 return fallBack('❌ Error al procesar tu ubicación. Por favor, inténtalo de nuevo.');
             }
@@ -131,6 +134,7 @@ El platillo  que seleccionaste(${pedido.nombre_platillo}) ya no está disponible
             
             // Validamos que todos los datos existan
             if (!myState.nombre_platillo || !myState.cantidadPedido || !myState.ubicacion) {
+                stop(ctx);
                 return endFlow('❌ Error: Faltan datos del pedido. Por favor inicia nuevamente.');
             }
      // Preparar los datos para enviar al backend
@@ -181,7 +185,7 @@ try {
     } else if (error.message) {
         errorMessage = `❌ ${error.message} o el menu fue modificado,por favor vuelve escribir *HOLA* para iniciar de nuevo.`;
     }
-    
+    stop(ctx);
     return endFlow(errorMessage);
 }
             const resumenDefinitivo = `
@@ -203,30 +207,24 @@ try {
     `.trim();
     
             await flowDynamic(resumenDefinitivo);
-             
+             stop(ctx);
            
     
         } catch (error) {
             console.error('Error al generar resumen:', error);
+            stop(ctx);
+           
             return endFlow('❌ Ocurrió un error al procesar tu pedido. Por favor contacta al soporte.');
         }
     })
-// const welcomeFlow = addKeyword(['hi', 'hello', 'hola'])
-//     .addAnswer(`🙌 Hello welcome to this *Chatbot*`)
-//     .addAnswer(
-//         [
-//             'I share with you the following links of interest about the project',
-//             '👉 *doc* to view the documentation',
-//         ].join('\n'),
-//         { delay: 800, capture: true },
-//         async (ctx, { fallBack }) => {
-//             if (!ctx.body.toLocaleLowerCase().includes('doc')) {
-//                 return fallBack('You should type *doc*')
-//             }
-//             return
-//         },
-//         [discordFlow]
-//     )
+    const flowNoPedido = addKeyword(['__Pedido__'])
+    .addAnswer(
+        '*Parece que no deseas hacer un pedido por el momento.*\n\n' +
+        '¡No hay problema! Si alguna vez te antojas de algo delicioso, solo escribe *Hola* 🍽️ y te mostraremos nuestras opciones nuevamente. 😋\n\n' +
+        'Gracias por tu tiempo y por estar con nosotros. ¡Esperamos verte pronto!\n\n' +
+        '*¡Te deseamos un excelente día!* ✨💫'
+    );
+
 
 const menuAPI = async () => {
     try {
@@ -248,7 +246,7 @@ const menuAPI = async () => {
 const hoy = new Date();
     const opcionesFecha = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     const fechaFormateada = hoy.toLocaleDateString('es-ES', opcionesFecha);
-const MenuDelDia = addKeyword(['1']) .addAction(async (ctx, { gotoFlow }) => start(ctx, gotoFlow, 10000))
+const MenuDelDia = addKeyword(['1']) .addAction(async (ctx, { gotoFlow }) => start(ctx, gotoFlow, 60000))
 
 .addAnswer(
     `🗓️Menú del día:\n ${fechaFormateada}\n`,
@@ -298,6 +296,7 @@ contador++;
     { capture: true },
     
     async (ctx, { fallBack, gotoFlow }) => {
+        
         const respuesta = ctx.body
             .normalize('NFD') // Normaliza caracteres latinos
             .replace(/[\u0300-\u036f]/g, '') // Elimina tildes
@@ -306,11 +305,11 @@ contador++;
         if (respuesta === 'si' || respuesta === 'no') {
             if (respuesta === 'si') {
           
-
+                reset(ctx, gotoFlow, 60000); 
                 return gotoFlow(flowPedido);
             } else {
             
-
+                stop(ctx);
                 return gotoFlow(flowNoPedido);                }
         } else {
             return fallBack('❌ Por favor responde únicamente con *sí* o *no*.');
