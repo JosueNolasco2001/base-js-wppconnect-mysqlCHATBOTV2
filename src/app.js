@@ -52,49 +52,87 @@ class Semaphore {
 const downloadSemaphore = new Semaphore(CONCURRENT_DOWNLOADS)
 
 // Función mejorada para descargar imágenes con control de concurrencia y mejor manejo de errores
+// Añadir un sistema de bloqueo para evitar solicitudes concurrentes al menú
+let menuRequestInProgress = false;
+let menuRequestLock = Promise.resolve();
+
+// Función mejorada para descargar imágenes con mejor manejo de errores
 const downloadImage = async (url, filename) => {
-    await downloadSemaphore.acquire()
-    const filePath = path.join(IMAGE_CACHE_DIR, filename)
+    await downloadSemaphore.acquire();
+    const filePath = path.join(IMAGE_CACHE_DIR, filename);
     
     try {
-        // Verificar si la imagen ya existe en caché
-        if (fs.existsSync(filePath)) {
-            downloadSemaphore.release()
-            return filePath
+        // Verificar si la URL es válida antes de intentar cualquier operación
+        if (!url || typeof url !== 'string' || url === 'null' || url === 'undefined') {
+            console.log(`[DOWNLOAD] URL inválida para ${filename}, retornando null`);
+            downloadSemaphore.release();
+            return null;
         }
 
-        const response = await axios.get(url, {
-            responseType: 'stream',
-            timeout: IMAGE_TIMEOUT_MS
-        })
+        // Verificar si la imagen ya existe en caché
+        if (fs.existsSync(filePath)) {
+            // Verificar cuándo se creó el archivo
+            const stats = fs.statSync(filePath);
+            const fileAgeMs = Date.now() - stats.mtimeMs;
+            
+            // Si el archivo es más antiguo que el TTL del menú, eliminarlo para forzar descarga nueva
+            if (fileAgeMs > MENU_CACHE_TTL) {
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (err) {
+                    console.error(`Error al eliminar archivo caché antiguo ${filename}:`, err.message);
+                }
+            } else {
+                downloadSemaphore.release();
+                return filePath;
+            }
+        }
 
-        const writer = fs.createWriteStream(filePath)
-        response.data.pipe(writer)
+        // Convertir la URL en una URL válida
+        const validUrl = url.startsWith('http') ? url : `http://127.0.0.1:8000/storage/${url}`;
+        
+        // Verificar que la URL es válida antes de hacer la petición
+        try {
+            new URL(validUrl);
+        } catch (e) {
+            console.error(`[DOWNLOAD] URL inválida: ${validUrl}`);
+            downloadSemaphore.release();
+            return null;
+        }
+
+        const response = await axios.get(validUrl, {
+            responseType: 'stream',
+            timeout: IMAGE_TIMEOUT_MS,
+            validateStatus: status => status >= 200 && status < 300 // Solo aceptar respuestas exitosas
+        });
+
+        const writer = fs.createWriteStream(filePath);
+        response.data.pipe(writer);
 
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
-                writer.close()
-                reject(new Error(`Timeout downloading ${filename}`))
-            }, IMAGE_TIMEOUT_MS)
+                writer.close();
+                reject(new Error(`Timeout downloading ${filename}`));
+            }, IMAGE_TIMEOUT_MS);
 
             writer.on('finish', () => {
-                clearTimeout(timer)
-                downloadSemaphore.release()
-                resolve(filePath)
-            })
+                clearTimeout(timer);
+                downloadSemaphore.release();
+                resolve(filePath);
+            });
             
             writer.on('error', (err) => {
-                clearTimeout(timer)
-                downloadSemaphore.release()
-                reject(err)
-            })
-        })
+                clearTimeout(timer);
+                downloadSemaphore.release();
+                reject(err);
+            });
+        });
     } catch (error) {
-        downloadSemaphore.release()
-        console.error(`[DOWNLOAD] Error con ${filename}:`, error.message)
-        return null
+        downloadSemaphore.release();
+        console.error(`[DOWNLOAD] Error con ${filename}:`, error.message);
+        return null;
     }
-}
+};
 
 // Función para limpiar caché con mejor manejo de errores
 const cleanImageCache = () => {
@@ -117,38 +155,90 @@ let menuCache = null
 let menuCacheTime = 0
 const MENU_CACHE_TTL = 0.1 * 60 * 1000 // 5 minutos
 
+// Versión mejorada del menuAPI con sistema de bloqueo
 const menuAPI = async () => {
+    // Si ya hay una solicitud en progreso, esperar a que termine
+    if (menuRequestInProgress) {
+        await menuRequestLock;
+        
+        // Después de esperar, si el caché es reciente, usar el caché
+        const now = Date.now();
+        if (menuCache && (now - menuCacheTime) < MENU_CACHE_TTL) {
+            console.log("[MENU] Usando caché después de esperar solicitud anterior");
+            return structuredClone(menuCache); // Usar copia profunda para evitar modificaciones
+        }
+    }
+    
+    // Crear nueva promesa para el bloqueo
+    let unlockRequest;
+    menuRequestLock = new Promise(resolve => {
+        unlockRequest = resolve;
+    });
+    
+    menuRequestInProgress = true;
+    
     try {
         // Usar caché si está disponible y es reciente
-        const now = Date.now()
+        const now = Date.now();
         if (menuCache && (now - menuCacheTime) < MENU_CACHE_TTL) {
-            return [...menuCache] // Retornar copia para evitar modificaciones
+            console.log("[MENU] Usando caché reciente");
+            return structuredClone(menuCache); // Usar copia profunda para evitar modificaciones
         }
 
+        console.log("[MENU] Obteniendo nuevo menú de la API");
         const response = await axios.get('http://127.0.0.1:8000/admin/menu/MenuHoy', {
             timeout: 10000 // 10 segundos máximo para la API
-        })
+        });
         
-        const menu = response.data.menu.map((item) => ({
-            id: item.id,
-            cantidad_patillo: item.cantidad_disponible,
-            nombre_platillo: item.nombre,
-            precio_platillo: item.precio_base,
-            imagen_url: item.imagen_url,
-            imagen_filename: `${item.id}_${path.basename(item.imagen_url)}`,
-            body: `🍽️ ${item.nombre}\n💵 Precio: Lps ${item.precio_base}\n📦 ${item.cantidad_disponible > 0 ? `Disponibles: ${item.cantidad_disponible}` : 'Disponibles: *Platillo agotado*'}\n📝 Descripción: ${item.descripcion}`
-        }))
+        if (!response.data || !response.data.menu || !Array.isArray(response.data.menu)) {
+            console.error("[MENU] Respuesta de API inválida:", response.data);
+            throw new Error("Formato de respuesta inválido");
+        }
         
-        // Actualizar caché
-        menuCache = [...menu]
-        menuCacheTime = now
+        const menu = response.data.menu.map((item) => {
+            // Verificar que la imagen_url sea válida
+            let imagen_url = item.imagen_url;
+            let imagen_filename = null;
+            
+            if (imagen_url && imagen_url !== 'null' && imagen_url !== 'undefined') {
+                try {
+                    // Verificar si es una URL válida
+                    new URL(imagen_url.startsWith('http') ? imagen_url : `http://127.0.0.1:8000/storage/${imagen_url}`);
+                    imagen_filename = `${item.id}_${path.basename(imagen_url)}`;
+                } catch (e) {
+                    console.error(`[MENU] URL inválida para platillo ${item.id}:`, imagen_url);
+                    imagen_url = null;
+                    imagen_filename = null;
+                }
+            } else {
+                imagen_url = null;
+            }
+            
+            return {
+                id: item.id,
+                cantidad_patillo: item.cantidad_disponible || 0,
+                nombre_platillo: item.nombre || 'Platillo sin nombre',
+                precio_platillo: item.precio_base || 0,
+                imagen_url: imagen_url,
+                imagen_filename: imagen_filename,
+                body: `🍽️ ${item.nombre || 'Platillo sin nombre'}\n💵 Precio: Lps ${item.precio_base || 0}\n📦 ${item.cantidad_disponible > 0 ? `Disponibles: ${item.cantidad_disponible}` : 'Disponibles: *Platillo agotado*'}\n📝 Descripción: ${item.descripcion || 'Sin descripción'}`
+            };
+        });
         
-        return menu
+        // Actualizar caché con copia profunda para evitar modificaciones accidentales
+        menuCache = structuredClone(menu);
+        menuCacheTime = now;
+        
+        return structuredClone(menu); // Retornar copia para evitar modificaciones
     } catch (error) {
-        console.error('Error al obtener el menú:', error)
-        return menuCache || [] // Usar caché antiguo en caso de error
+        console.error('[MENU] Error al obtener el menú:', error.message);
+        return menuCache || []; // Usar caché antiguo en caso de error o arreglo vacío
+    } finally {
+        // Liberar el bloqueo
+        menuRequestInProgress = false;
+        unlockRequest();
     }
-}
+};
 
 // Flujo de pedido mejorado con mejor manejo de errores y claridad en el código
 const flowPedido = addKeyword(['__Flujo De Pedido Completo__'])
@@ -269,9 +359,10 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                     stop(ctx)
                     return endFlow('❌ Error: Faltan datos del pedido. Por favor inicia nuevamente.')
                 }
-                
+                const nombreUsuario2 = ctx?.notification?.name || ctx?.sender?.pushname || ctx?.pushName || 'Usuario';
+
                 const pedidoData = {
-                    nombre: ctx.pushName || 'Usuario',
+                    nombre: nombreUsuario2 || 'Usuario',
                     telefono: ctx.from,
                     latitud: myState.ubicacion.latitud,
                     longitud: myState.ubicacion.longitud,
@@ -316,12 +407,13 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                     stop(ctx)
                     return endFlow(errorMessage)
                 }
-                
+                const nombreUsuario = ctx?.notification?.name || ctx?.sender?.pushname || ctx?.pushName || 'Usuario';
+
                 const resumenDefinitivo = `
     ✅ *PEDIDO CONFIRMADO*
     ━━━━━━━━━━━━━━━━━━
     🗒️ *Detalle:*
-    • Cliente: ${ctx.pushName || 'Usuario'}
+    • Cliente: ${nombreUsuario|| 'Usuario'}
     • Telefono: ${ctx.from || 'Usuario'}
     • Platillo: ${myState.nombre_platillo}
     • Cantidad: ${myState.cantidadPedido}
@@ -359,25 +451,48 @@ const opcionesFecha = { weekday: 'long', year: 'numeric', month: 'long', day: 'n
 const fechaFormateada = hoy.toLocaleDateString('es-ES', opcionesFecha)
 
 const MenuDelDia = addKeyword(['1'])
-   
+    .addAction(async (ctx) => {
+        // Agregar un identificador único para cada solicitud de menú
+        ctx.menuRequestId = Date.now() + Math.random().toString(36).substring(2, 10);
+        console.log(`[MENU] Nueva solicitud de menú ID: ${ctx.menuRequestId}`);
+    })
     .addAnswer(
         `🗓️ Menú del día:\n ${fechaFormateada}\n`,
         null,
         async (ctx, { flowDynamic, gotoFlow, endFlow, state }) => {
+            const requestId = ctx.menuRequestId;
+            console.log(`[MENU] Procesando solicitud ${requestId}`);
+            
             try {
-                const data = await menuAPI()
+                // Obtener el menú con el sistema de bloqueo ya incorporado
+                const data = await menuAPI();
                 
-                if (data.length === 0) {
-                    stop(ctx)
-                    return endFlow('😊 No hay menú disponible hoy.')
+                if (!data || data.length === 0) {
+                    stop(ctx);
+                    return endFlow('😊 No hay menú disponible hoy.');
                 }
 
                 // Guardar menú en el estado para uso posterior
-                await state.update({ menuData: data })
+                await state.update({ menuData: data });
+                
+                // Variable para rastrear si este proceso sigue siendo válido
+                let isProcessingCancelled = false;
+                
+                // Comprobar periódicamente si hay una solicitud más reciente
+                const checkIntervalId = setInterval(() => {
+                    if (ctx.menuRequestId !== requestId) {
+                        console.log(`[MENU] Solicitud ${requestId} cancelada por una más reciente`);
+                        isProcessingCancelled = true;
+                        clearInterval(checkIntervalId);
+                    }
+                }, 500);
 
                 // Procesar cada platillo individualmente con manejo de errores
-                let contador = 1
+                let contador = 1;
                 for (const item of data) {
+                    // Si se ha cancelado, detener el procesamiento
+                    if (isProcessingCancelled) break;
+                    
                     try {
                         // Usar formato emoji para el contador
                         const numeroEmoji = contador.toString()
@@ -390,46 +505,86 @@ const MenuDelDia = addKeyword(['1'])
                             .replace(/6/g, '6️⃣')
                             .replace(/7/g, '7️⃣')
                             .replace(/8/g, '8️⃣')
-                            .replace(/9/g, '9️⃣')
+                            .replace(/9/g, '9️⃣');
 
-                        // Descargar imagen para este platillo
-                        let imagePath = null
-                        try {
-                            imagePath = await downloadImage(
-                                `http://127.0.0.1:8000/storage/${item.imagen_url}`,
-                                item.imagen_filename
-                            )
-                        } catch (imageError) {
-                            console.error(`Error al descargar imagen para platillo ${item.nombre_platillo}:`, imageError)
+                        // Configurar mensaje base
+                        let mensaje = `\n──────────────\n${numeroEmoji} *${item.nombre_platillo}*\n──────────────\n${item.body}`;
+                        let imagePath = null;
+                        
+                        // Verificar si el platillo tiene una URL de imagen válida
+                        if (item.imagen_url && item.imagen_filename) {
+                            try {
+                                // Comprobar nuevamente si el proceso ha sido cancelado antes de descargar
+                                if (isProcessingCancelled) break;
+                                
+                                imagePath = await downloadImage(
+                                    item.imagen_url,
+                                    item.imagen_filename
+                                );
+                                
+                                if (!imagePath) {
+                                    mensaje += "\n\n⚠️ *Imagen no disponible*";
+                                }
+                            } catch (imageError) {
+                                console.error(`[MENU] Error al descargar imagen para platillo ${item.nombre_platillo}:`, imageError);
+                                mensaje += "\n\n⚠️ *Error al cargar la imagen*";
+                                imagePath = null;
+                            }
+                        } else {
+                            mensaje += "\n\n⚠️ *Sin imagen*";
                         }
 
+                        // Comprobar nuevamente si el proceso ha sido cancelado antes de enviar
+                        if (isProcessingCancelled) break;
+                        
                         // Enviar mensaje con o sin imagen
-                        await flowDynamic([{
-                            body: `\n──────────────\n${numeroEmoji} *${item.nombre_platillo}*\n──────────────\n${item.body}`,
-                            media: imagePath || null
-                        }])
+                        if (imagePath) {
+                            await flowDynamic([{
+                                body: mensaje,
+                                media: imagePath
+                            }]);
+                        } else {
+                            // Si no hay imagen, enviar solo texto para evitar errores
+                            await flowDynamic(mensaje);
+                        }
 
-                        contador++
+                        contador++;
 
                         // Eliminar imagen para liberar espacio
                         if (imagePath && fs.existsSync(imagePath)) {
                             fs.unlink(imagePath, (err) => {
-                                if (err) console.error(`Error al eliminar ${imagePath}:`, err)
-                            })
+                                if (err) console.error(`[MENU] Error al eliminar ${imagePath}:`, err);
+                            });
                         }
                     } catch (itemError) {
-                        stop(ctx)
-                        console.error(`Error al procesar platillo #${contador}:`, itemError)
+                        console.error(`[MENU] Error al procesar platillo #${contador} en solicitud ${requestId}:`, itemError);
+                        
+                        // Comprobar si el proceso ha sido cancelado antes de enviar mensaje de error
+                        if (!isProcessingCancelled) {
+                            try {
+                                await flowDynamic(`❌ Hubo un problema al mostrar el platillo #${contador}. Continuamos con los demás...`);
+                            } catch (e) {
+                                console.error('[MENU] Error al enviar mensaje de error:', e);
+                            }
+                        }
+                        
                         // Continuar con el siguiente platillo sin romper el flujo
+                        contador++;
                     }
                 }
-
-                // Limpiar todas las imágenes al finalizar
-                cleanImageCache()
+                
+                // Limpiar intervalo y cache
+                clearInterval(checkIntervalId);
+                cleanImageCache();
+                
+                // Si se canceló el procesamiento, no continuar con la siguiente pregunta
+                if (isProcessingCancelled) {
+                    return endFlow();
+                }
             } catch (error) {
-                stop(ctx)
-                console.error('Error general al mostrar menú:', error)
-                return endFlow('❌ Ocurrió un error al mostrar el menú. Por favor escribe *HOLA* para intentar nuevamente.')
+                console.error(`[MENU] Error general al mostrar menú en solicitud ${requestId}:`, error);
+                stop(ctx);
+                return endFlow('❌ Ocurrió un error al mostrar el menú. Por favor escribe *HOLA* para intentar nuevamente.');
             }
         }
     )
@@ -455,7 +610,42 @@ const MenuDelDia = addKeyword(['1'])
             }
         }
     )
+const flowAsesor = addKeyword(['2'])
+    .addAnswer(
+        '📞 *Contactar con un asesor*\n\n' +
+        'Nuestros asesores están disponibles para ayudarte de:\n' +
+        '🕘 Lunes a Viernes: 9:00 AM - 6:00 PM\n' +
+        '🕘 Sábados: 10:00 AM - 2:00 PM\n\n' +
+        'Puedes comunicarte con nosotros a través de:\n' +
+        '📱 Teléfono: +504 1234-5678\n' +
+        '✉️ Email: atencion@lacampana.hn\n\n' +
+        'Estaremos encantados de atenderte personalmente.'
+    )
+    .addAnswer(
+        'Si necesitas ayuda inmediata, escribe *HOLA* para volver al menú principal.',
+        { delay: 2000 },
+        async (ctx) => {
+            stop(ctx)
+        }
+    )
 
+const flowRedes = addKeyword(['3'])
+    .addAnswer(
+        '📢 *Nuestras redes sociales*\n\n' +
+        '¡Síguenos para conocer nuestras promociones, novedades y más!\n\n' +
+        '📸 Instagram: @LaCampanaHN\n' +
+        '👍 Facebook: /LaCampanaHN\n' +
+        '🐦 Twitter: @LaCampanaHN\n' +
+        '📌 TikTok: @LaCampanaHN\n\n' +
+        'Visita nuestro sitio web: www.lacampana.hn'
+    )
+    .addAnswer(
+        '¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal.',
+        { delay: 2000 },
+        async (ctx) => {
+            stop(ctx)
+        }
+    )
 const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { gotoFlow }) => start(ctx, gotoFlow, 60000))
     .addAnswer('🍽️ ¡Bienvenido a La Campaña! 🎉 Hola 👋, soy tu asistente virtual y estoy aquí para ayudarte con tu pedido. Para continuar, elige una opción marcando el número correspondiente', {
         media: join(process.cwd(), 'src', 'lacampaña.jpg')
@@ -472,7 +662,7 @@ const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { 
                 return fallBack('❌ Opción inválida. Escribe 1, 2 o 3')
             }
         },
-        [MenuDelDia],
+        [MenuDelDia,flowRedes,flowAsesor],
         { delay: 1000 } // Reducido a 1 segundo para mejor experiencia de usuario
     )
 
@@ -498,6 +688,7 @@ const fullSamplesFlow = addKeyword(['samples', utils.setEvent('SAMPLES')])
     .addAnswer(`Send file from URL`, {
         media: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
     })
+    
 
 const main = async () => {
     const adapterFlow = createFlow([welcomeFlow, flowPedido, flowNoPedido, registerFlow, fullSamplesFlow, idleFlow])
