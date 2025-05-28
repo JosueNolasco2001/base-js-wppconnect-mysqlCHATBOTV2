@@ -347,7 +347,105 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 return fallBack('❌ Error al procesar tu ubicación. Por favor, inténtalo de nuevo.')
             }
         }
-    )
+    ).addAnswer(
+    '🚚 Calculando costo de envío...',
+    null,
+    async (ctx, { flowDynamic, state, fallBack, gotoFlow }) => {
+        try {
+            const myState = state.getMyState()
+            
+            // Llamar a la API de distancia
+            const distanceResponse = await fetch('http://127.0.0.1:8000/api/vehicle/distance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    target_lat: myState.ubicacion.latitud,
+                    target_lng: myState.ubicacion.longitud
+                }),
+                timeout: 10000
+            })
+
+            if (!distanceResponse.ok) {
+                throw new Error('Error al calcular distancia')
+            }
+
+            const distanceData = await distanceResponse.json()
+            
+            if (!distanceData.success) {
+                throw new Error('No se pudo calcular la distancia')
+            }
+
+            const routeInfo = distanceData.data.route_info
+            const distanciaKm = routeInfo.distance.km
+            const tiempoMin = routeInfo.adjusted_delivery_time?.adjusted_time?.minutes || 
+                            routeInfo.delivery_estimate?.total_time?.minutes || 0
+
+            // Calcular costo según la lógica del controlador
+            const hoy = new Date()
+            const diaSemana = hoy.getDay() // 0=domingo, 6=sábado
+            
+            let costoEnvio = 0
+            if (diaSemana === 6 || distanciaKm <= 0.7) {
+                costoEnvio = 0
+            } else {
+                costoEnvio = Math.max(60, 20 + (7.5 * distanciaKm) + (1.7 * tiempoMin))
+            }
+
+            const subtotal = myState.precio_platillo * myState.cantidadPedido
+            const totalConEnvio = subtotal + costoEnvio
+
+            await state.update({ 
+                costoEnvio, 
+                distanciaKm, 
+                tiempoMin,
+                totalConEnvio 
+            })
+
+            const mensaje = `📊 *RESUMEN DE TU PEDIDO*
+━━━━━━━━━━━━━━━━━━
+🍽️ ${myState.nombre_platillo} x${myState.cantidadPedido}
+💰 Subtotal: Lps ${subtotal.toFixed(2)}
+
+🚚 *INFORMACIÓN DE ENTREGA:*
+📏 Distancia: ${distanciaKm.toFixed(2)} km
+⏱️ Tiempo estimado: ${tiempoMin} minutos
+💵 Costo de envío: ${costoEnvio === 0 ? 'GRATIS' : `Lps ${costoEnvio.toFixed(2)}`}
+${costoEnvio === 0 ? (diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!' : '🎉 ¡Envío gratis por cercanía!') : ''}
+
+💳 *TOTAL A PAGAR: Lps ${totalConEnvio.toFixed(2)}*
+━━━━━━━━━━━━━━━━━━`
+
+            await flowDynamic(mensaje)
+
+        } catch (error) {
+            console.error('Error calculando envío:', error)
+            await flowDynamic('⚠️ No pudimos calcular el costo de envío exacto, pero continuaremos con tu pedido.')
+            await state.update({ costoEnvio: 0, totalConEnvio: myState.precio_platillo * myState.cantidadPedido })
+        }
+    }
+)
+.addAnswer(
+    '¿Confirmas tu pedido? (responde *sí* o *no*)',
+    { capture: true },
+    async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
+        const respuesta = ctx.body
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+
+        if (respuesta === 'si') {
+            reset(ctx, gotoFlow, 60000)
+            return // Continúa al siguiente paso (procesamiento del pedido)
+        } else if (respuesta === 'no') {
+            stop(ctx)
+            return endFlow('❌ Pedido cancelado.\n\n¡No hay problema! Si cambias de opinión, escribe *HOLA* para hacer un nuevo pedido. 😊')
+        } else {
+            return fallBack('❌ Por favor responde únicamente con *sí* o *no*.')
+        }
+    }
+)
     .addAnswer(
         '📋 Procesando tu pedido...',
         null,
@@ -391,6 +489,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                     }
 
                     const data = await response.json()
+                    console.log(data,"locoooo mira esto JAJSDJAJSDJASD")
 
                     
                 } catch (error) {
@@ -409,23 +508,19 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 }
                 const nombreUsuario = ctx?.notification?.name || ctx?.sender?.pushname || ctx?.pushName || 'Usuario';
 
-                const resumenDefinitivo = `
-    ✅ *PEDIDO CONFIRMADO*
-    ━━━━━━━━━━━━━━━━━━
-    🗒️ *Detalle:*
-    • Cliente: ${nombreUsuario|| 'Usuario'}
-    • Telefono: ${ctx.from || 'Usuario'}
-    • Platillo: ${myState.nombre_platillo}
-    • Cantidad: ${myState.cantidadPedido}
-    • Total: $${(myState.precio_platillo * myState.cantidadPedido).toFixed(2)}
-    ━━━━━━━━━━━━━━━━━━
-    📦 *Entrega:*
-    Coordenadas guardadas:
-    - Lat: ${myState.ubicacion.latitud}
-    - Lng: ${myState.ubicacion.longitud}
-    ━━━━━━━━━━━━━━━━━━
-    🚚 *¡Gracias por tu compra!*
-    `.trim()
+  const resumenDefinitivo = `
+✅ *PEDIDO CONFIRMADO*
+━━━━━━━━━━━━━━━━━━
+🗒️ *Detalle:*
+- Cliente: ${nombreUsuario || 'Usuario'}
+- Platillo: ${myState.nombre_platillo}
+- Cantidad: ${myState.cantidadPedido}
+- Subtotal: Lps ${(myState.precio_platillo * myState.cantidadPedido).toFixed(2)}
+- Envío: ${myState.costoEnvio === 0 ? 'GRATIS' : `Lps ${myState.costoEnvio.toFixed(2)}`}
+- *TOTAL: Lps ${myState.totalConEnvio.toFixed(2)}*
+━━━━━━━━━━━━━━━━━━
+🚚 *¡Gracias por tu compra!*
+`.trim()
 
                 await flowDynamic(resumenDefinitivo)
                 stop(ctx)
