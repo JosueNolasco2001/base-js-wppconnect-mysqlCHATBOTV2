@@ -236,7 +236,7 @@ const menuAPI = async () => {
                 precio_platillo: item.precio_base || 0,
                 imagen_url: imagen_url,
                 imagen_filename: imagen_filename,
-                body: `🍽️ ${item.nombre || 'Platillo sin nombre'}\n💵 Precio: Lps ${item.precio_base || 0}\n📦 ${item.cantidad_disponible > 0 ? `Disponibles: ${item.cantidad_disponible}` : 'Disponibles: *Platillo agotado*'}\n📝 Descripción: ${item.descripcion || 'Sin descripción'}`
+                body: `🍽️ ${item.nombre || 'Platillo sin nombre'}\n💵 Precio: Lps ${item.precio_base || 0}\n📦 ${item.cantidad_disponible <= 0 ? '*Platillo Agotado*' : '*Platillo Disponible*'}\n📝 Descripción: ${item.descripcion || 'Sin descripción'}`
             };
         });
         
@@ -328,7 +328,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 }
 
                 if (cantidad > myState.pedidoCantidadDisponible) {
-                    return fallBack(`❌ No hay suficiente disponibilidad. Solo quedan ${myState.pedidoCantidadDisponible} unidades. Por favor, ingresa una cantidad menor:`)
+                    return fallBack(`❌ No hay suficiente disponibilidad. Por favor, ingresa una cantidad menor.`)
                 }
 
                 await state.update({ cantidadPedido: cantidad })
