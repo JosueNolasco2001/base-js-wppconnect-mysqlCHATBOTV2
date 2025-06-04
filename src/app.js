@@ -155,6 +155,21 @@ let menuCache = null
 let menuCacheTime = 0
 const MENU_CACHE_TTL = 0.1 * 60 * 1000 // 5 minutos
 
+// 2. FUNCIÓN PARA VERIFICAR CANCELACIÓN (agregar después de las configuraciones globales)
+const verificarCancelacion = (ctx, endFlow, stop) => {
+    const mensaje = ctx.body
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+
+    if (['cancelar', 'cancel', 'salir', 'terminar'].includes(mensaje)) {
+        stop(ctx)
+        return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+    }
+    return false
+}
+
 // Versión mejorada del menuAPI con sistema de bloqueo
 const menuAPI = async () => {
     // Si ya hay una solicitud en progreso, esperar a que termine
@@ -247,6 +262,7 @@ const flowPedido = addKeyword(['__Flujo De Pedido Completo__'])
         'Escribe solo el *número* del platillo que deseas:\n\n',
         { capture: true },
         async (ctx, { state, fallBack, flowDynamic, gotoFlow, endFlow }) => {
+            if (verificarCancelacion(ctx, endFlow, stop)) return
             try {
                 reset(ctx, gotoFlow, 60000)
                 const menu = await menuAPI()
@@ -297,6 +313,8 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         { capture: true },
         async (ctx, { state, fallBack, endFlow, gotoFlow }) => {
             try {
+                if (verificarCancelacion(ctx, endFlow, stop)) return
+
                 reset(ctx, gotoFlow, 60000)
                 const myState = state.getMyState()
                 const cantidad = parseInt(ctx.body)
@@ -326,7 +344,9 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         'Usa la función de WhatsApp:\n' +
         '📎 *Adjuntar* → *Ubicación* → *Enviar tu ubicación actual*',
         { capture: true },
-        async (ctx, { state, fallBack, gotoFlow }) => {
+        async (ctx, { state, fallBack, gotoFlow,endFlow }) => {
+        if (verificarCancelacion(ctx, endFlow, stop)) return
+
             try {
                 reset(ctx, gotoFlow, 60000)
 
@@ -430,6 +450,8 @@ ${costoEnvio === 0 ? (diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!' : '
     '¿Confirmas tu pedido? (responde *sí* o *no*)',
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
+    if (verificarCancelacion(ctx, endFlow, stop)) return
+
         const respuesta = ctx.body
             .normalize('NFD')
             .replace(/[\u0300-\u036f]/g, '')
@@ -686,7 +708,9 @@ const MenuDelDia = addKeyword(['1'])
     .addAnswer(
         '¿Deseas pedir alguno de estos platillos? (responde *sí* o *no*)',
         { capture: true },
-        async (ctx, { fallBack, gotoFlow }) => {
+        async (ctx, { fallBack, gotoFlow,endFlow }) => {
+        if (verificarCancelacion(ctx, endFlow, stop)) return
+
             const respuesta = ctx.body
                 .normalize('NFD')
                 .replace(/[\u0300-\u036f]/g, '')
@@ -749,10 +773,13 @@ const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { 
         [
             '1️⃣ Ver nuestro menú 📋',
             '2️⃣ Hablar con un asesor 📞',
-            '3️⃣ Nuestras redes sociales 📢'
+            '3️⃣ Nuestras redes sociales 📢',
+        '💡 *Tip:* En cualquier momento puedes escribir *"cancelar"* para terminar la operación.',
         ],
         { capture: true },
-        async (ctx, { fallBack }) => {
+        async (ctx, { fallBack,endFlow }) => {
+            if (verificarCancelacion(ctx, endFlow, stop)) return
+
             if (!['1', '2', '3'].includes(ctx.body.trim())) {
                 return fallBack('❌ Opción inválida. Escribe 1, 2 o 3')
             }
@@ -761,32 +788,12 @@ const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { 
         { delay: 1000 } // Reducido a 1 segundo para mejor experiencia de usuario
     )
 
-// Los otros flujos se mantienen igual...
-const registerFlow = addKeyword(utils.setEvent('REGISTER_FLOW'))
-    .addAnswer(`What is your name?`, { capture: true }, async (ctx, { state }) => {
-        await state.update({ name: ctx.body })
-    })
-    .addAnswer('What is your age?', { capture: true }, async (ctx, { state }) => {
-        await state.update({ age: ctx.body })
-    })
-    .addAction(async (_, { flowDynamic, state }) => {
-        await flowDynamic(`${state.get('name')}, thanks for your information!: Your age: ${state.get('age')}`)
-    })
 
-const fullSamplesFlow = addKeyword(['samples', utils.setEvent('SAMPLES')])
-    .addAnswer(`💪 I'll send you a lot files...`)
-    .addAnswer(`Send image from Local`, { media: join(process.cwd(), 'assets', 'sample.png') })
-    .addAnswer(`Send video from URL`, {
-        media: 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExYTJ0ZGdjd2syeXAwMjQ4aWdkcW04OWlqcXI3Ynh1ODkwZ25zZWZ1dCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/LCohAb657pSdHv0Q5h/giphy.mp4',
-    })
-    .addAnswer(`Send audio from URL`, { media: 'https://cdn.freesound.org/previews/728/728142_11861866-lq.mp3' })
-    .addAnswer(`Send file from URL`, {
-        media: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-    })
-    
+
+
 
 const main = async () => {
-    const adapterFlow = createFlow([welcomeFlow, flowPedido, flowNoPedido, registerFlow, fullSamplesFlow, idleFlow])
+    const adapterFlow = createFlow([welcomeFlow, flowPedido, flowNoPedido, idleFlow])
 
     const adapterProvider = createProvider(Provider, {
         puppeteerOptions: {
