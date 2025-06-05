@@ -1,4 +1,4 @@
-// Mejora en el manejo del menú del día y solución para usuarios concurrentes
+// Mejora en el manejo del menú del día y solución para usuarios concurrentes + MÚLTIPLES PEDIDOS
 import { join } from 'path'
 import { createBot, createProvider, createFlow, addKeyword, utils, EVENTS } from '@builderbot/bot'
 import { MysqlAdapter as Database } from '@builderbot/database-mysql'
@@ -155,8 +155,35 @@ let menuCache = null
 let menuCacheTime = 0
 const MENU_CACHE_TTL = 0.1 * 60 * 1000 // 5 minutos
 
-// 2. FUNCIÓN PARA VERIFICAR CANCELACIÓN (agregar después de las configuraciones globales)
-const verificarCancelacion = (ctx, endFlow, stop) => {
+
+
+
+// 1. FUNCIÓN PARA LIMPIAR ESTADO COMPLETO
+const limpiarEstadoCompleto = async (state) => {
+    await state.clear() // Limpia todo el estado
+    // O si prefieres ser más específico:
+    /*
+    await state.update({
+        pedidos: [],
+        menuData: null,
+        pedidoActualId: null,
+        pedidoActualBody: null,
+        pedidoActualCantidadDisponible: null,
+        pedidoActualNombre: null,
+        pedidoActualPrecio: null,
+        cantidadActual: null,
+        ubicacion: null,
+        costoEnvio: 0,
+        distanciaKm: 0,
+        tiempoMin: 0,
+        subtotal: 0,
+        totalConEnvio: 0
+    })
+    */
+}
+// 2. FUNCIÓN MEJORADA PARA VERIFICAR CANCELACIÓN CON LIMPIEZA DE ESTADO
+
+const verificarCancelacion = async (ctx ,state) => {
     const mensaje = ctx.body
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
@@ -164,11 +191,13 @@ const verificarCancelacion = (ctx, endFlow, stop) => {
         .trim()
 
     if (['cancelar', 'cancel', 'salir', 'terminar'].includes(mensaje)) {
-        stop(ctx)
-        return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        // LIMPIAR TODO EL ESTADO ANTES DE TERMINAR
+        await limpiarEstadoCompleto(state)
+ return true
     }
     return false
 }
+
 
 // Versión mejorada del menuAPI con sistema de bloqueo
 const menuAPI = async () => {
@@ -236,7 +265,7 @@ const menuAPI = async () => {
                 precio_platillo: item.precio_base || 0,
                 imagen_url: imagen_url,
                 imagen_filename: imagen_filename,
-                body: `🍽️ ${item.nombre || 'Platillo sin nombre'}\n💵 Precio: Lps ${item.precio_base || 0}\n📦 ${item.cantidad_disponible <= 0 ? '*Platillo Agotado*' : '*Platillo Disponible*'}\n📝 Descripción: ${item.descripcion || 'Sin descripción'}`
+                body: `🍽️ ${item.nombre || 'Platillo sin nombre'}\n💵 Precio: Lps ${item.precio_base || 0}\n📦 ${item.cantidad_disponible > 0 ? `Disponibles: ${item.cantidad_disponible}` : 'Disponibles: *Platillo agotado*'}\n📝 Descripción: ${item.descripcion || 'Sin descripción'}`
             };
         });
         
@@ -255,14 +284,41 @@ const menuAPI = async () => {
     }
 };
 
-// Flujo de pedido mejorado con mejor manejo de errores y claridad en el código
+// NUEVA FUNCIÓN: Mostrar resumen del carrito
+const mostrarResumenCarrito = (pedidos) => {
+    if (!pedidos || pedidos.length === 0) {
+        return "🛒 *Tu carrito está vacío*"
+    }
+
+    let resumen = "🛒 *RESUMEN DE TU CARRITO:*\n━━━━━━━━━━━━━━━━━━\n"
+    let subtotal = 0
+
+    pedidos.forEach((pedido, index) => {
+        const totalPlatillo = pedido.precio_platillo * pedido.cantidad
+        subtotal += totalPlatillo
+        resumen += `${index + 1}. ${pedido.nombre_platillo}\n`
+        resumen += `   Cantidad: ${pedido.cantidad} x Lps ${pedido.precio_platillo} = Lps ${totalPlatillo.toFixed(2)}\n\n`
+    })
+
+    resumen += `━━━━━━━━━━━━━━━━━━\n💰 *Subtotal: Lps ${subtotal.toFixed(2)}*\n`
+    resumen += `🚚 (El costo de envío se calculará al finalizar)`
+
+    return resumen
+}
+
+// Flujo de pedido mejorado con soporte para múltiples pedidos
 const flowPedido = addKeyword(['__Flujo De Pedido Completo__'])
     .addAnswer(
         '📝 *Selecciona un platillo:*\n\n' +
         'Escribe solo el *número* del platillo que deseas:\n\n',
         { capture: true },
         async (ctx, { state, fallBack, flowDynamic, gotoFlow, endFlow }) => {
-            if (verificarCancelacion(ctx, endFlow, stop)) return
+              if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
+
             try {
                 reset(ctx, gotoFlow, 60000)
                 const menu = await menuAPI()
@@ -288,11 +344,11 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 }
 
                 await state.update({
-                    pedidoId: pedido.id,
-                    pedidoBody: pedido.body,
-                    pedidoCantidadDisponible: pedido.cantidad_patillo,
-                    nombre_platillo: pedido.nombre_platillo,
-                    precio_platillo: pedido.precio_platillo
+                    pedidoActualId: pedido.id,
+                    pedidoActualBody: pedido.body,
+                    pedidoActualCantidadDisponible: pedido.cantidad_patillo,
+                    pedidoActualNombre: pedido.nombre_platillo,
+                    pedidoActualPrecio: pedido.precio_platillo
                 })
             } catch (error) {
                 console.error('Error en selección de platillo:', error)
@@ -304,8 +360,8 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
     .addAnswer(
         null,
         async (ctx, { state, flowDynamic }) => {
-            const { pedidoBody } = state.getMyState()
-            await flowDynamic(`✅ Has pedido: ${pedidoBody}`)
+            const { pedidoActualBody } = state.getMyState()
+            await flowDynamic(`✅ Has seleccionado: ${pedidoActualBody}`)
         }
     )
     .addAnswer(
@@ -313,7 +369,11 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         { capture: true },
         async (ctx, { state, fallBack, endFlow, gotoFlow }) => {
             try {
-                if (verificarCancelacion(ctx, endFlow, stop)) return
+                 if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
 
                 reset(ctx, gotoFlow, 60000)
                 const myState = state.getMyState()
@@ -327,11 +387,11 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                     return fallBack('❌ La cantidad debe ser mayor a 0. Por favor, ingresa una cantidad válida:')
                 }
 
-                if (cantidad > myState.pedidoCantidadDisponible) {
-                    return fallBack(`❌ No hay suficiente disponibilidad. Por favor, ingresa una cantidad menor.`)
+                if (cantidad > myState.pedidoActualCantidadDisponible) {
+                    return fallBack(`❌ No hay suficiente disponibilidad. Solo quedan ${myState.pedidoActualCantidadDisponible} unidades. Por favor, ingresa una cantidad menor:`)
                 }
 
-                await state.update({ cantidadPedido: cantidad })
+                await state.update({ cantidadActual: cantidad })
             } catch (error) {
                 console.error('Error en cantidad de pedido:', error)
                 stop(ctx)
@@ -340,12 +400,74 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         }
     )
     .addAnswer(
+        '✅ *Platillo agregado al carrito*',
+        null,
+        async (ctx, { state, flowDynamic }) => {
+            const myState = state.getMyState()
+            
+            // Inicializar array de pedidos si no existe
+            let pedidos = myState.pedidos || []
+            
+            // Agregar el pedido actual al array
+            const nuevoPedido = {
+                id: myState.pedidoActualId,
+                nombre_platillo: myState.pedidoActualNombre,
+                precio_platillo: myState.pedidoActualPrecio,
+                cantidad: myState.cantidadActual
+            }
+            
+            pedidos.push(nuevoPedido)
+            
+            // Actualizar estado con el array de pedidos
+            await state.update({ pedidos })
+            
+            // Mostrar resumen del carrito
+            const resumenCarrito = mostrarResumenCarrito(pedidos)
+            await flowDynamic(resumenCarrito)
+        }
+    )
+    .addAnswer(
+        '🛒 ¿Deseas agregar otro platillo a tu pedido?\n\n' +
+        'Responde:\n' +
+        '• *sí* - Para agregar otro platillo\n' +
+        '• *no* - Para continuar con el pedido',
+        { capture: true },
+        async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
+             if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
+
+            const respuesta = ctx.body
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+
+            if (respuesta === 'si') {
+                reset(ctx, gotoFlow, 60000)
+                // Volver al inicio del flujo de pedido para seleccionar otro platillo
+                return gotoFlow(flowPedido)
+            } else if (respuesta === 'no') {
+                reset(ctx, gotoFlow, 60000)
+                // Continuar con el proceso de ubicación y finalización
+                return // Continúa al siguiente paso
+            } else {
+                return fallBack('❌ Por favor responde únicamente con *sí* o *no*.')
+            }
+        }
+    )
+    .addAnswer(
         '📍 *Por favor, comparte tu ubicación* 📍\n\n' +
         'Usa la función de WhatsApp:\n' +
         '📎 *Adjuntar* → *Ubicación* → *Enviar tu ubicación actual*',
         { capture: true },
-        async (ctx, { state, fallBack, gotoFlow,endFlow }) => {
-        if (verificarCancelacion(ctx, endFlow, stop)) return
+        async (ctx, { state, fallBack, gotoFlow, endFlow }) => {
+           if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
 
             try {
                 reset(ctx, gotoFlow, 60000)
@@ -367,129 +489,154 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 return fallBack('❌ Error al procesar tu ubicación. Por favor, inténtalo de nuevo.')
             }
         }
-    ).addAnswer(
-    '🚚 Calculando costo de envío...',
-    null,
-    async (ctx, { flowDynamic, state, fallBack, gotoFlow }) => {
-        try {
-            const myState = state.getMyState()
-            
-            // Llamar a la API de distancia
-            const distanceResponse = await fetch('http://127.0.0.1:8000/api/vehicle/distance', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    target_lat: myState.ubicacion.latitud,
-                    target_lng: myState.ubicacion.longitud
-                }),
-                timeout: 10000
-            })
-
-            if (!distanceResponse.ok) {
-                throw new Error('Error al calcular distancia')
-            }
-
-            const distanceData = await distanceResponse.json()
-            
-            if (!distanceData.success) {
-                throw new Error('No se pudo calcular la distancia')
-            }
-
-            const routeInfo = distanceData.data.route_info
-            const distanciaKm = routeInfo.distance.km
-            const tiempoMin = routeInfo.adjusted_delivery_time?.adjusted_time?.minutes || 
-                            routeInfo.delivery_estimate?.total_time?.minutes || 0
-
-            // Calcular costo según la lógica del controlador
-            const hoy = new Date()
-            const diaSemana = hoy.getDay() // 0=domingo, 6=sábado
-            
-            let costoEnvio = 0
-            if (diaSemana === 6 || distanciaKm <= 0.7) {
-                costoEnvio = 0
-            } else {
-                costoEnvio = Math.max(60, 20 + (7.5 * distanciaKm) + (1.7 * tiempoMin))
-            }
-
-            const subtotal = myState.precio_platillo * myState.cantidadPedido
-            const totalConEnvio = subtotal + costoEnvio
-
-            await state.update({ 
-                costoEnvio, 
-                distanciaKm, 
-                tiempoMin,
-                totalConEnvio 
-            })
-
-            const mensaje = `📊 *RESUMEN DE TU PEDIDO*
-━━━━━━━━━━━━━━━━━━
-🍽️ ${myState.nombre_platillo} x${myState.cantidadPedido}
-💰 Subtotal: Lps ${subtotal.toFixed(2)}
-
-🚚 *INFORMACIÓN DE ENTREGA:*
-📏 Distancia: ${distanciaKm.toFixed(2)} km
-⏱️ Tiempo estimado: ${tiempoMin} minutos
-💵 Costo de envío: ${costoEnvio === 0 ? 'GRATIS' : `Lps ${costoEnvio.toFixed(2)}`}
-${costoEnvio === 0 ? (diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!' : '🎉 ¡Envío gratis por cercanía!') : ''}
-
-💳 *TOTAL A PAGAR: Lps ${totalConEnvio.toFixed(2)}*
-━━━━━━━━━━━━━━━━━━`
-
-            await flowDynamic(mensaje)
-
-        } catch (error) {
-            console.error('Error calculando envío:', error)
-            await flowDynamic('⚠️ No pudimos calcular el costo de envío exacto, pero continuaremos con tu pedido.')
-            await state.update({ costoEnvio: 0, totalConEnvio: myState.precio_platillo * myState.cantidadPedido })
-        }
-    }
-)
-.addAnswer(
-    '¿Confirmas tu pedido? (responde *sí* o *no*)',
-    { capture: true },
-    async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
-    if (verificarCancelacion(ctx, endFlow, stop)) return
-
-        const respuesta = ctx.body
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase()
-
-        if (respuesta === 'si') {
-            reset(ctx, gotoFlow, 60000)
-            return // Continúa al siguiente paso (procesamiento del pedido)
-        } else if (respuesta === 'no') {
-            stop(ctx)
-            return endFlow('❌ Pedido cancelado.\n\n¡No hay problema! Si cambias de opinión, escribe *HOLA* para hacer un nuevo pedido. 😊')
-        } else {
-            return fallBack('❌ Por favor responde únicamente con *sí* o *no*.')
-        }
-    }
-)
+    )
     .addAnswer(
-        '📋 Procesando tu pedido...',
+        '🚚 Calculando costo de envío...',
+        null,
+        async (ctx, { flowDynamic, state, fallBack, gotoFlow }) => {
+            try {
+                const myState = state.getMyState()
+                
+                // Llamar a la API de distancia
+                const distanceResponse = await fetch('http://127.0.0.1:8000/api/vehicle/distance', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        target_lat: myState.ubicacion.latitud,
+                        target_lng: myState.ubicacion.longitud
+                    }),
+                    timeout: 10000
+                })
+
+                if (!distanceResponse.ok) {
+                    throw new Error('Error al calcular distancia')
+                }
+
+                const distanceData = await distanceResponse.json()
+                
+                if (!distanceData.success) {
+                    throw new Error('No se pudo calcular la distancia')
+                }
+
+                const routeInfo = distanceData.data.route_info
+                const distanciaKm = routeInfo.distance.km
+                const tiempoMin = routeInfo.adjusted_delivery_time?.adjusted_time?.minutes || 
+                                routeInfo.delivery_estimate?.total_time?.minutes || 0
+
+                // Calcular costo según la lógica del controlador
+                const hoy = new Date()
+                const diaSemana = hoy.getDay() // 0=domingo, 6=sábado
+                
+                let costoEnvio = 0
+                if (diaSemana === 6 || distanciaKm <= 0.7) {
+                    costoEnvio = 0
+                } else {
+                    costoEnvio = Math.max(60, 20 + (7.5 * distanciaKm) + (1.7 * tiempoMin))
+                }
+
+                // Calcular subtotal de todos los pedidos
+                const pedidos = myState.pedidos || []
+                const subtotal = pedidos.reduce((total, pedido) => {
+                    return total + (pedido.precio_platillo * pedido.cantidad)
+                }, 0)
+                
+                const totalConEnvio = subtotal + costoEnvio
+
+                await state.update({ 
+                    costoEnvio, 
+                    distanciaKm, 
+                    tiempoMin,
+                    subtotal,
+                    totalConEnvio 
+                })
+
+                // Generar resumen detallado
+                let resumenDetallado = `📊 *RESUMEN COMPLETO DE TU PEDIDO*\n━━━━━━━━━━━━━━━━━━\n`
+                
+                pedidos.forEach((pedido, index) => {
+                    const totalPlatillo = pedido.precio_platillo * pedido.cantidad
+                    resumenDetallado += `${index + 1}. ${pedido.nombre_platillo}\n`
+                    resumenDetallado += `   ${pedido.cantidad} x Lps ${pedido.precio_platillo} = Lps ${totalPlatillo.toFixed(2)}\n\n`
+                })
+
+                resumenDetallado += `💰 Subtotal: Lps ${subtotal.toFixed(2)}\n\n`
+                resumenDetallado += `🚚 *INFORMACIÓN DE ENTREGA:*\n`
+                resumenDetallado += `📏 Distancia: ${distanciaKm.toFixed(2)} km\n`
+                resumenDetallado += `⏱️ Tiempo estimado: ${tiempoMin} minutos\n`
+                resumenDetallado += `💵 Costo de envío: ${costoEnvio === 0 ? 'GRATIS' : `Lps ${costoEnvio.toFixed(2)}`}\n`
+                
+                if (costoEnvio === 0) {
+                    resumenDetallado += diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!\n' : '🎉 ¡Envío gratis por cercanía!\n'
+                }
+                
+                resumenDetallado += `\n💳 *TOTAL A PAGAR: Lps ${totalConEnvio.toFixed(2)}*\n━━━━━━━━━━━━━━━━━━`
+
+                await flowDynamic(resumenDetallado)
+
+            } catch (error) {
+                console.error('Error calculando envío:', error)
+                const myState = state.getMyState()
+                const pedidos = myState.pedidos || []
+                const subtotal = pedidos.reduce((total, pedido) => {
+                    return total + (pedido.precio_platillo * pedido.cantidad)
+                }, 0)
+                
+                await flowDynamic('⚠️ No pudimos calcular el costo de envío exacto, pero continuaremos con tu pedido.')
+                await state.update({ costoEnvio: 0, subtotal, totalConEnvio: subtotal })
+            }
+        }
+    )
+    .addAnswer(
+        '¿Confirmas tu pedido completo? (responde *sí* o *no*)',
+        { capture: true },
+        async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
+  if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
+            const respuesta = ctx.body
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+
+            if (respuesta === 'si') {
+                reset(ctx, gotoFlow, 60000)
+                return // Continúa al siguiente paso (procesamiento del pedido)
+            } else if (respuesta === 'no') {
+                stop(ctx)
+                return endFlow('❌ Pedido cancelado.\n\n¡No hay problema! Si cambias de opinión, escribe *HOLA* para hacer un nuevo pedido. 😊')
+            } else {
+                return fallBack('❌ Por favor responde únicamente con *sí* o *no*.')
+            }
+        }
+    )
+    .addAnswer(
+        '📋 Procesando tu pedido completo...',
         null,
         async (ctx, { flowDynamic, state, endFlow }) => {
             try {
                 const myState = state.getMyState()
 
-                if (!myState.nombre_platillo || !myState.cantidadPedido || !myState.ubicacion) {
+                if (!myState.pedidos || myState.pedidos.length === 0 || !myState.ubicacion) {
                     stop(ctx)
                     return endFlow('❌ Error: Faltan datos del pedido. Por favor inicia nuevamente.')
                 }
+
                 const nombreUsuario2 = ctx?.notification?.name || ctx?.sender?.pushname || ctx?.pushName || 'Usuario';
 
+                // Preparar los datos del pedido con TODOS los platillos
                 const pedidoData = {
                     nombre: nombreUsuario2 || 'Usuario',
                     telefono: ctx.from,
                     latitud: myState.ubicacion.latitud,
                     longitud: myState.ubicacion.longitud,
-                    platillos: [{
-                        id: myState.pedidoId,
-                        cantidad: myState.cantidadPedido
-                    }]
+                    platillos: myState.pedidos.map(pedido => ({
+                        id: pedido.id,
+                        cantidad: pedido.cantidad
+                    }))
                 }
 
                 try {
@@ -511,9 +658,8 @@ ${costoEnvio === 0 ? (diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!' : '
                     }
 
                     const data = await response.json()
-                    console.log(data,"locoooo mira esto JAJSDJAJSDJASD")
+                    console.log(data, "Respuesta del servidor para múltiples pedidos")
 
-                    
                 } catch (error) {
                     console.error('Error en la solicitud:', error)
 
@@ -528,23 +674,28 @@ ${costoEnvio === 0 ? (diaSemana === 6 ? '🎉 ¡Envío gratis los sábados!' : '
                     stop(ctx)
                     return endFlow(errorMessage)
                 }
+
                 const nombreUsuario = ctx?.notification?.name || ctx?.sender?.pushname || ctx?.pushName || 'Usuario';
 
-  const resumenDefinitivo = `
-✅ *PEDIDO CONFIRMADO*
-━━━━━━━━━━━━━━━━━━
-🗒️ *Detalle:*
-- Cliente: ${nombreUsuario || 'Usuario'}
-- Platillo: ${myState.nombre_platillo}
-- Cantidad: ${myState.cantidadPedido}
-- Subtotal: Lps ${(myState.precio_platillo * myState.cantidadPedido).toFixed(2)}
-- Envío: ${myState.costoEnvio === 0 ? 'GRATIS' : `Lps ${myState.costoEnvio.toFixed(2)}`}
-- *TOTAL: Lps ${myState.totalConEnvio.toFixed(2)}*
-━━━━━━━━━━━━━━━━━━
-🚚 *¡Gracias por tu compra!*
-`.trim()
+                // Generar resumen definitivo con todos los platillos
+                let resumenDefinitivo = `✅ *PEDIDO CONFIRMADO*\n━━━━━━━━━━━━━━━━━━\n`
+                resumenDefinitivo += `🗒️ *Cliente:* ${nombreUsuario || 'Usuario'}\n\n`
+                resumenDefinitivo += `📋 *Platillos pedidos:*\n`
+                
+                myState.pedidos.forEach((pedido, index) => {
+                    const totalPlatillo = pedido.precio_platillo * pedido.cantidad
+                    resumenDefinitivo += `${index + 1}. ${pedido.nombre_platillo}\n`
+                    resumenDefinitivo += `   Cantidad: ${pedido.cantidad} x Lps ${pedido.precio_platillo} = Lps ${totalPlatillo.toFixed(2)}\n`
+                })
+
+                resumenDefinitivo += `\n💰 Subtotal: Lps ${myState.subtotal.toFixed(2)}\n`
+                resumenDefinitivo += `🚚 Envío: ${myState.costoEnvio === 0 ? 'GRATIS' : `Lps ${myState.costoEnvio.toFixed(2)}`}\n`
+                resumenDefinitivo += `💳 *TOTAL: Lps ${myState.totalConEnvio.toFixed(2)}*\n`
+                resumenDefinitivo += `━━━━━━━━━━━━━━━━━━\n🚚 *¡Gracias por tu compra!*`
 
                 await flowDynamic(resumenDefinitivo)
+
+                   await limpiarEstadoCompleto(state)
                 stop(ctx)
             } catch (error) {
                 console.error('Error al generar resumen:', error)
@@ -559,7 +710,13 @@ const flowNoPedido = addKeyword(['__Pedido__'])
         '*Parece que no deseas hacer un pedido por el momento.*\n\n' +
         '¡No hay problema! Si alguna vez te antojas de algo delicioso, solo escribe *Hola* 🍽️ y te mostraremos nuestras opciones nuevamente. 😋\n\n' +
         'Gracias por tu tiempo y por estar con nosotros. ¡Esperamos verte pronto!\n\n' +
-        '*¡Te deseamos un excelente día!* ✨💫'
+        '*¡Te deseamos un excelente día!* ✨💫',
+        null,
+        async (ctx, { state }) => {
+            // LIMPIAR ESTADO AL NO HACER PEDIDO
+            await limpiarEstadoCompleto(state)
+            stop(ctx)
+        }
     )
 
 // Flujo de menú mejorado con mejor manejo de imágenes y concurrencia
@@ -708,9 +865,11 @@ const MenuDelDia = addKeyword(['1'])
     .addAnswer(
         '¿Deseas pedir alguno de estos platillos? (responde *sí* o *no*)',
         { capture: true },
-        async (ctx, { fallBack, gotoFlow,endFlow }) => {
-        if (verificarCancelacion(ctx, endFlow, stop)) return
-
+        async (ctx, { fallBack, gotoFlow, endFlow,state }) => {
+    if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
             const respuesta = ctx.body
                 .normalize('NFD')
                 .replace(/[\u0300-\u036f]/g, '')
@@ -729,6 +888,7 @@ const MenuDelDia = addKeyword(['1'])
             }
         }
     )
+
 const flowAsesor = addKeyword(['2'])
     .addAnswer(
         '📞 *Contactar con un asesor*\n\n' +
@@ -743,7 +903,9 @@ const flowAsesor = addKeyword(['2'])
     .addAnswer(
         'Si necesitas ayuda inmediata, escribe *HOLA* para volver al menú principal.',
         { delay: 2000 },
-        async (ctx) => {
+        async (ctx, { state }) => {
+            // LIMPIAR ESTADO AL TERMINAR
+            await limpiarEstadoCompleto(state)
             stop(ctx)
         }
     )
@@ -761,11 +923,19 @@ const flowRedes = addKeyword(['3'])
     .addAnswer(
         '¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal.',
         { delay: 2000 },
-        async (ctx) => {
+        async (ctx, { state }) => {
+            // LIMPIAR ESTADO AL TERMINAR
+            await limpiarEstadoCompleto(state)
             stop(ctx)
         }
     )
-const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { gotoFlow }) => start(ctx, gotoFlow, 60000))
+
+const welcomeFlow = addKeyword(['hola', 'ole', 'alo'])
+    .addAction(async (ctx, { gotoFlow, state }) => {
+        // LIMPIAR ESTADO AL INICIAR NUEVA CONVERSACIÓN
+        await limpiarEstadoCompleto(state)
+        start(ctx, gotoFlow, 60000)
+    })
     .addAnswer('🍽️ ¡Bienvenido a La Campaña! 🎉 Hola 👋, soy tu asistente virtual y estoy aquí para ayudarte con tu pedido. Para continuar, elige una opción marcando el número correspondiente', {
         media: join(process.cwd(), 'src', 'lacampaña.jpg')
     })
@@ -774,23 +944,23 @@ const welcomeFlow = addKeyword(['hola', 'ole', 'alo']) .addAction(async (ctx, { 
             '1️⃣ Ver nuestro menú 📋',
             '2️⃣ Hablar con un asesor 📞',
             '3️⃣ Nuestras redes sociales 📢',
-        '💡 *Tip:* En cualquier momento puedes escribir *"cancelar"* para terminar la operación.',
+            '💡 *Tip:* En cualquier momento puedes escribir *"cancelar"* para terminar la operación.',
         ],
         { capture: true },
-        async (ctx, { fallBack,endFlow }) => {
-            if (verificarCancelacion(ctx, endFlow, stop)) return
+        async (ctx, { fallBack, endFlow, state }) => {
+            if (await verificarCancelacion(ctx,state)) {
+            stop(ctx)
+            return endFlow('❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋')
+        }
+           
 
             if (!['1', '2', '3'].includes(ctx.body.trim())) {
                 return fallBack('❌ Opción inválida. Escribe 1, 2 o 3')
             }
         },
-        [MenuDelDia,flowRedes,flowAsesor],
-        { delay: 1000 } // Reducido a 1 segundo para mejor experiencia de usuario
+        [MenuDelDia, flowRedes, flowAsesor],
+        { delay: 1000 }
     )
-
-
-
-
 
 const main = async () => {
     const adapterFlow = createFlow([welcomeFlow, flowPedido, flowNoPedido, idleFlow])
