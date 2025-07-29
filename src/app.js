@@ -167,14 +167,31 @@ const buildApiUrl = (endpoint) => {
     console.log(`${API_BASE_URL}${cleanEndpoint}`)
     return `${API_BASE_URL}${cleanEndpoint}`
 }
+
+
+ 
 // Función para crear sesión de pago
-const crearSesionPago = async (pedidoData, total) => {
+const crearSesionPago = async (pedidoData, total, pedidoId, pedidos) => {
+
+          // Generar número de factura (puedes usar el pedidoId o generar uno personalizado)
+        const numeroFactura = `FAC-${pedidoId || Date.now()}`;
+        
+        // Crear desglose detallado de los platillos
+        let desglosePlatillos = '';
+        if (pedidos && pedidos.length > 0) {
+            desglosePlatillos = pedidos.map(platillo => 
+                `${platillo.nombre_platillo} x${platillo.cantidad} (Lps ${platillo.precio_platillo} c/u)`
+            ).join(', ');
+        }
+        
+        // Descripción detallada
+        const descripcionDetallada = `Factura: ${numeroFactura} | Platillos: ${desglosePlatillos} | Total: Lps ${total}`;
     try {
         const paymentData = {
             name: pedidoData.nombre || 'Usuario',
             email: 'josuenolascoaguilera@gmail.com', // Email simulado
             mobile: parseInt(pedidoData.telefono.replace(/\D/g, '')), // Solo números
-            description: `Pedido de ${pedidoData.platillos.length} platillo(s)`,
+            description: descripcionDetallada,
             total: total,
             currency: 'HNL',
             returnUrl: 'https://mi-sitio.com/respuesta-pago'
@@ -728,7 +745,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
                 await flowDynamic('✅ Pedido registrado correctamente. Generando enlace de pago...')
                 
                 // SEGUNDO: Generar enlace de pago
-                const sesionPago = await crearSesionPago(pedidoData, dataPedido.total)
+const sesionPago = await crearSesionPago(pedidoData, dataPedido.total, dataPedido.id, myState.pedidos)
                 
                 if (sesionPago.success) {
                     await state.update({ 
