@@ -17,7 +17,7 @@ import { idleFlow, start, reset, stop } from "./idle-custom.js";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import { ref } from "process";
+// import { ref } from "process";
 dotenv.config();
 // Configuración
 const IMAGE_CACHE_DIR = "./.tmp_images";
