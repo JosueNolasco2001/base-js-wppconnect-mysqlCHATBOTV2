@@ -159,6 +159,44 @@ const downloadImage = async (url, filename) => {
   }
 };
 
+// Función para verificar si el cliente tiene pagos pendientes
+// Función para verificar si el cliente tiene pagos pendientes
+const verificarPagoPendiente = async (telefono) => {
+  try {
+    const pagoUrl = buildApiUrl("/api/verificar-pago");
+    const response = await axios.post(pagoUrl, {
+      telefono: telefono
+    }, {
+      timeout: API_TIMEOUT,
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error verificando pago pendiente:", error);
+    return { success: false }; // En caso de error, permitir continuar
+  }
+};
+// Función para obtener la fecha de hoy desde el backend
+const obtenerFechaHoy = async () => {
+  try {
+
+    const fechaUrl = buildApiUrl("/api/fecha-hoy");
+    console.log(fechaUrl,"acaaaaaaaaaa")
+    const response = await axios.get(fechaUrl, {
+      timeout: API_TIMEOUT,
+    });
+    return response.data.fecha || "Fecha no disponible";
+  } catch (error) {
+    console.error("Error obteniendo fecha de hoy:", error);
+    // Fallback a fecha local si falla la API
+    const hoy = new Date();
+    return hoy.toLocaleDateString("es-ES", {
+      weekday: "long",
+      year: "numeric", 
+      month: "long",
+      day: "numeric",
+    });
+  }
+};
 // Función para limpiar caché con mejor manejo de errores
 const cleanImageCache = () => {
   try {
@@ -1105,15 +1143,6 @@ const flowNoPedido = addKeyword(["__Pedido__"]).addAnswer(
   }
 );
 
-// Flujo de menú mejorado con mejor manejo de imágenes y concurrencia
-const hoy = new Date();
-const opcionesFecha = {
-  weekday: "long",
-  year: "numeric",
-  month: "long",
-  day: "numeric",
-};
-const fechaFormateada = hoy.toLocaleDateString("es-ES", opcionesFecha);
 
 const MenuDelDia = addKeyword(["1"])
   .addAction(async (ctx) => {
@@ -1123,13 +1152,34 @@ const MenuDelDia = addKeyword(["1"])
     console.log(`[MENU] Nueva solicitud de menú ID: ${ctx.menuRequestId}`);
   })
   .addAnswer(
-    `🗓️ Menú del día:\n ${fechaFormateada}\n`,
+    null,
     null,
     async (ctx, { flowDynamic, gotoFlow, endFlow, state }) => {
       const requestId = ctx.menuRequestId;
       console.log(`[MENU] Procesando solicitud ${requestId}`);
 
+      // Obtener fecha desde el backend
+      const fechaFormateada = await obtenerFechaHoy();
+      await flowDynamic(`🗓️ Menú del día:\n ${fechaFormateada}\n`);
+
       try {
+
+
+
+         
+     // VERIFICAR PAGOS PENDIENTES PRIMERO
+const verificacionPago = await verificarPagoPendiente(ctx.from);
+console.log(verificacionPago)
+if (verificacionPago.success) {
+  stop(ctx);
+return endFlow(
+  "⚠️ *TIENES UN PAGO PENDIENTE*\n\n" +
+  "Se está esperando tu pago. No puedes realizar un nuevo pedido hasta completar el pago anterior.\n\n" +
+  "👉 Si deseas continuar, por favor realiza el pago desde el link enviado.\n\n" +
+  "❌ Si deseas cancelar tu pedido, desde el link de pago selecciona *'No deseo continuar'*."
+);
+
+}
         // Obtener el menú con el sistema de bloqueo ya incorporado
         const data = await menuAPI();
 
