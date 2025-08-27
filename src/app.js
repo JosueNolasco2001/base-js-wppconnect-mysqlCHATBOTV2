@@ -17,6 +17,7 @@ import { idleFlow, start, reset, stop } from "./idle-custom.js";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import { TIMEOUT } from "dns";
 // import { ref } from "process";
 dotenv.config();
 // Configuración
@@ -180,7 +181,7 @@ const obtenerFechaHoy = async () => {
   try {
 
     const fechaUrl = buildApiUrl("/api/fecha-hoy");
-    console.log(fechaUrl,"acaaaaaaaaaa")
+    console.log(fechaUrl, "acaaaaaaaaaa")
     const response = await axios.get(fechaUrl, {
       timeout: API_TIMEOUT,
     });
@@ -191,7 +192,7 @@ const obtenerFechaHoy = async () => {
     const hoy = new Date();
     return hoy.toLocaleDateString("es-ES", {
       weekday: "long",
-      year: "numeric", 
+      year: "numeric",
       month: "long",
       day: "numeric",
     });
@@ -450,13 +451,11 @@ const menuAPI = async () => {
         precio_platillo: item.precio_base || 0,
         imagen_url: imagen_url,
         imagen_filename: imagen_filename,
-        body: `🍽️ ${item.nombre || "Platillo sin nombre"}\n💵 Precio: Lps ${
-          item.precio_base || 0
-        }\n📦 ${
-          item.cantidad_disponible > 0
+        body: `🍽️ ${item.nombre || "Platillo sin nombre"}\n💵 Precio: Lps ${item.precio_base || 0
+          }\n📦 ${item.cantidad_disponible > 0
             ? "Platillo *Disponible*"
             : "*Platillo agotado*"
-        }\n📝 Descripción: ${item.descripcion || "Sin descripción"}`,
+          }\n📝 Descripción: ${item.descripcion || "Sin descripción"}`,
       };
     });
 
@@ -501,7 +500,7 @@ const mostrarResumenCarrito = (pedidos) => {
 const flowPedido = addKeyword(["__Flujo De Pedido Completo__"])
   .addAnswer(
     "📝 *Selecciona un platillo:*\n\n" +
-      "Escribe solo el *número* del platillo que deseas:\n\n",
+    "Escribe solo el *número* del platillo que deseas:\n\n",
     { capture: true },
     async (ctx, { state, fallBack, flowDynamic, gotoFlow, endFlow }) => {
       if (await verificarCancelacion(ctx, state)) {
@@ -630,9 +629,9 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
   )
   .addAnswer(
     "🛒 ¿Deseas agregar otro platillo a tu pedido?\n\n" +
-      "Responde:\n" +
-      "• *sí* - Para agregar otro platillo\n" +
-      "• *no* - Para continuar con el pedido",
+    "Responde:\n" +
+    "• *sí* - Para agregar otro platillo\n" +
+    "• *no* - Para continuar con el pedido",
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state }) => {
       if (await verificarCancelacion(ctx, state)) {
@@ -662,8 +661,8 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
   )
   .addAnswer(
     "📍 *Por favor, comparte tu ubicación* 📍\n\n" +
-      "Usa la función de WhatsApp:\n" +
-      "📎 *Adjuntar* → *Ubicación* → *Enviar tu ubicación actual*",
+    "Usa la función de WhatsApp:\n" +
+    "📎 *Adjuntar* → *Ubicación* → *Enviar tu ubicación actual*",
     { capture: true },
     async (ctx, { state, fallBack, gotoFlow, endFlow }) => {
       if (await verificarCancelacion(ctx, state)) {
@@ -748,11 +747,10 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         resumenDetallado += `💰 Subtotal Base: Lps ${cotizacion.resumen.subtotal_base}\n`;
         resumenDetallado += `📊 Total ISV: Lps ${cotizacion.resumen.total_isv}\n`;
         resumenDetallado += `🍽️ Total Platillos: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
-        resumenDetallado += `🚚 Costo de envío: ${
-          cotizacion.resumen.envio === 0
+        resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
             ? "GRATIS"
             : `Lps ${cotizacion.resumen.envio}`
-        }\n`;
+          }\n`;
         resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
         resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
 
@@ -838,7 +836,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
             const errorData = await responsePedido.json().catch(() => ({}));
             throw new Error(
               errorData.mensaje ||
-                `Error HTTP: ${responsePedido.status} - ${responsePedido.statusText}`
+              `Error HTTP: ${responsePedido.status} - ${responsePedido.statusText}`
             );
           }
 
@@ -917,10 +915,10 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
 
             await flowDynamic(
               `💳 *ENLACE DE PAGO GENERADO*\n\n` +
-                `Para completar tu pedido, realiza el pago haciendo clic en este enlace:\n\n` +
-                `🔗 ${sesionPago.processUrl}\n\n` +
-                `💰 Total a pagar: Lps ${dataPedido.total}\n\n` +
-                `⏰ Verificaremos tu pago automáticamente...`
+              `Para completar tu pedido, realiza el pago haciendo clic en este enlace:\n\n` +
+              `🔗 ${sesionPago.processUrl}\n\n` +
+              `💰 Total a pagar: Lps ${dataPedido.total}\n\n` +
+              `⏰ Verificaremos tu pago automáticamente...`
             );
 
             // TERCERO: POLLING para verificar pago
@@ -1027,7 +1025,7 @@ const flowFactura = addKeyword(["__Factura_Pago_Confirmado__"]).addAnswer(
           const errorData = await response.json().catch(() => ({}));
           throw new Error(
             errorData.mensaje ||
-              `Error HTTP: ${response.status} - ${response.statusText}`
+            `Error HTTP: ${response.status} - ${response.statusText}`
           );
         }
 
@@ -1096,9 +1094,8 @@ ${index + 1}. **${pedido.nombre_platillo}**
 💰 **RESUMEN DE COSTOS**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🍽️ Subtotal platillos: Lps ${myState.subtotal}
-🚚 Costo de envío: ${
-        myState.costoEnvio === 0 ? "GRATIS" : `Lps ${myState.costoEnvio}`
-      }
+🚚 Costo de envío: ${myState.costoEnvio === 0 ? "GRATIS" : `Lps ${myState.costoEnvio}`
+        }
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💳 **TOTAL PAGADO: Lps ${myState.totalConEnvio}**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1132,9 +1129,9 @@ ${index + 1}. **${pedido.nombre_platillo}**
 
 const flowNoPedido = addKeyword(["__Pedido__"]).addAnswer(
   "*Parece que no deseas hacer un pedido por el momento.*\n\n" +
-    "¡No hay problema! Si alguna vez te antojas de algo delicioso, solo escribe *Hola* 🍽️ y te mostraremos nuestras opciones nuevamente. 😋\n\n" +
-    "Gracias por tu tiempo y por estar con nosotros. ¡Esperamos verte pronto!\n\n" +
-    "*¡Te deseamos un excelente día!* ✨💫",
+  "¡No hay problema! Si alguna vez te antojas de algo delicioso, solo escribe *Hola* 🍽️ y te mostraremos nuestras opciones nuevamente. 😋\n\n" +
+  "Gracias por tu tiempo y por estar con nosotros. ¡Esperamos verte pronto!\n\n" +
+  "*¡Te deseamos un excelente día!* ✨💫",
   null,
   async (ctx, { state }) => {
     // LIMPIAR ESTADO AL NO HACER PEDIDO
@@ -1166,20 +1163,20 @@ const MenuDelDia = addKeyword(["1"])
 
 
 
-         
-     // VERIFICAR PAGOS PENDIENTES PRIMERO
-const verificacionPago = await verificarPagoPendiente(ctx.from);
-console.log(verificacionPago)
-if (verificacionPago.success) {
-  stop(ctx);
-return endFlow(
-  "⚠️ *TIENES UN PAGO PENDIENTE*\n\n" +
-  "Se está esperando tu pago. No puedes realizar un nuevo pedido hasta completar el pago anterior.\n\n" +
-  "👉 Si deseas continuar, por favor realiza el pago desde el link enviado.\n\n" +
-  "❌ Si deseas cancelar tu pedido, desde el link de pago selecciona *'No deseo continuar'*."
-);
 
-}
+        // VERIFICAR PAGOS PENDIENTES PRIMERO
+        const verificacionPago = await verificarPagoPendiente(ctx.from);
+        console.log(verificacionPago)
+        if (verificacionPago.success) {
+          stop(ctx);
+          return endFlow(
+            "⚠️ *TIENES UN PAGO PENDIENTE*\n\n" +
+            "Se está esperando tu pago. No puedes realizar un nuevo pedido hasta completar el pago anterior.\n\n" +
+            "👉 Si deseas continuar, por favor realiza el pago desde el link enviado.\n\n" +
+            "❌ Si deseas cancelar tu pedido, desde el link de pago selecciona *'No deseo continuar'*."
+          );
+
+        }
         // Obtener el menú con el sistema de bloqueo ya incorporado
         const data = await menuAPI();
 
@@ -1355,14 +1352,14 @@ return endFlow(
 const flowAsesor = addKeyword(["2"])
   .addAnswer(
     "📞 *Contactar con un asesor*\n\n" +
-      "Nuestros asesores están disponibles para ayudarte de:\n" +
-      "🕘 Lunes a Viernes: 9:00 AM - 6:00 PM\n" +
-      "🕘 Sábados: 10:00 AM - 2:00 PM\n\n" +
-      "Puedes comunicarte con nosotros a través de:\n" +
-      "📱 Teléfono: +504 1234-5678\n" +
-      "✉️ Email: atencion@lacampana.hn\n\n" +
-      "Estaremos encantados de atenderte personalmente." +
-      "Si necesitas ayuda inmediata, escribe *HOLA* para volver al menú principal."
+    "Nuestros asesores están disponibles para ayudarte de:\n" +
+    "🕘 Lunes a Viernes: 9:00 AM - 6:00 PM\n" +
+    "🕘 Sábados: 10:00 AM - 2:00 PM\n\n" +
+    "Puedes comunicarte con nosotros a través de:\n" +
+    "📱 Teléfono: +504 1234-5678\n" +
+    "✉️ Email: atencion@lacampana.hn\n\n" +
+    "Estaremos encantados de atenderte personalmente." +
+    "Si necesitas ayuda inmediata, escribe *HOLA* para volver al menú principal."
   )
   .addAction(async (ctx) => {
     stop(ctx);
@@ -1371,13 +1368,13 @@ const flowAsesor = addKeyword(["2"])
 const flowRedes = addKeyword(["3"])
   .addAnswer(
     "📢 *Nuestras redes sociales*\n\n" +
-      "¡Síguenos para conocer nuestras promociones, novedades y más!\n\n" +
-      "📸 Instagram: @LaCampanaHN\n" +
-      "👍 Facebook: /LaCampanaHN\n" +
-      "🐦 Twitter: @LaCampanaHN\n" +
-      "📌 TikTok: @LaCampanaHN\n\n" +
-      "Visita nuestro sitio web: www.lacampana.hn" +
-      "¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal."
+    "¡Síguenos para conocer nuestras promociones, novedades y más!\n\n" +
+    "📸 Instagram: @LaCampanaHN\n" +
+    "👍 Facebook: /LaCampanaHN\n" +
+    "🐦 Twitter: @LaCampanaHN\n" +
+    "📌 TikTok: @LaCampanaHN\n\n" +
+    "Visita nuestro sitio web: www.lacampana.hn" +
+    "¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal."
   )
   .addAction(async (ctx) => {
     stop(ctx);
@@ -1438,23 +1435,23 @@ const pagoProcesadoCorrectamente = addKeyword(
         pedidosPendientes.delete(ctx.from);
         return endFlow(
           "🎉 *¡PEDIDO CONFIRMADO Y EN PREPARACIÓN!*\n\n" +
-            "✅ Tu pago ha sido procesado exitosamente\n" +
-            "👨‍🍳 Tu pedido está siendo preparado\n" +
-            `📋 Número de pedido: ${pedidoId}\n` +
-            `💰 Total pagado: Lps ${total}\n\n` +
-            "📞 Te contactaremos pronto para coordinar la entrega\n\n" +
-            "¡Gracias por tu compra! 🍽️"
+          "✅ Tu pago ha sido procesado exitosamente\n" +
+          "👨‍🍳 Tu pedido está siendo preparado\n" +
+          `📋 Número de pedido: ${pedidoId}\n` +
+          `💰 Total pagado: Lps ${total}\n\n` +
+          "📞 Te contactaremos pronto para coordinar la entrega\n\n" +
+          "¡Gracias por tu compra! 🍽️"
         );
       } else {
         await limpiarEstadoCompleto(state);
         pedidosPendientes.delete(ctx.from);
         return endFlow(
           "⚠️ *Pago confirmado pero hubo un problema*\n\n" +
-            "✅ Tu pago fue procesado correctamente\n" +
-            "❗ Hubo un error técnico al procesar tu pedido\n\n" +
-            "📞 Nos pondremos en contacto contigo para resolver esto\n" +
-            `📋 Número de referencia: ${pedidoId}\n\n` +
-            "Disculpa las molestias"
+          "✅ Tu pago fue procesado correctamente\n" +
+          "❗ Hubo un error técnico al procesar tu pedido\n\n" +
+          "📞 Nos pondremos en contacto contigo para resolver esto\n" +
+          `📋 Número de referencia: ${pedidoId}\n\n` +
+          "Disculpa las molestias"
         );
       }
     }
@@ -1481,13 +1478,13 @@ const pagoProcesadoIncorrectamente = addKeyword(
       pedidosPendientes.delete(ctx.from);
       return endFlow(
         "⏰ *TIEMPO DE VERIFICACIÓN AGOTADO*\n\n" +
-          "No pudimos confirmar tu pago en los últimos 5 minutos.\n" +
-          "El pedido ha sido cancelado automáticamente.\n\n" +
-          "💡 *¿Qué hacer?*\n" +
-          "• Si completaste el pago, contacta a soporte\n" +
-          "• Si no pagaste, puedes intentar nuevamente escribiendo *HOLA*\n\n" +
-          `📋 Referencia: ${reference || "N/A"}\n` +
-          `📋 Número de pedido cancelado: ${pedidoId}`
+        "No pudimos confirmar tu pago en los últimos 5 minutos.\n" +
+        "El pedido ha sido cancelado automáticamente.\n\n" +
+        "💡 *¿Qué hacer?*\n" +
+        "• Si completaste el pago, contacta a soporte\n" +
+        "• Si no pagaste, puedes intentar nuevamente escribiendo *HOLA*\n\n" +
+        `📋 Referencia: ${reference || "N/A"}\n` +
+        `📋 Número de pedido cancelado: ${pedidoId}`
       );
     }
   } catch (error) {
@@ -1537,19 +1534,48 @@ const main = async () => {
   adapterProvider.server.post(
     "/v1/process-payment",
     handleCtx(async (bot, req, res) => {
-      const { requestId, reference, number, status, name } = req.body;
+      const { requestId, reference, number, status, name, pedido_id } = req.body;
 
       if (!requestId || !reference || !number || !status || !name) {
         return res.end("Missing required fields");
       }
 
-      if (status !== "approved") {
-        await bot.dispatch("__Pago Incorrectamente__", { from: number, name });
+
+      try {
+        if (status !== "approved") {
+        console.log("llegamos al !aprovved")
+        //await bot.dispatch("__Pago Incorrectamente__", { from: number, name });
+        await cancelarPedido(pedido_id);
+        const message = "⏰ * PAGO RECHAZADO*\n\n" +
+          "No pudimos confirmar tu pago en los últimos 5 minutos.\n" +
+          "El pedido ha sido cancelado automáticamente.\n\n" +
+          "💡 *¿Qué hacer?*\n" +
+          "• Si completaste el pago, contacta a soporte\n" +
+          "• Si no pagaste, puedes intentar nuevamente escribiendo *HOLA*\n\n" +
+          `📋 Referencia: ${reference || "N/A"}\n` +
+          `📋 Número de pedido cancelado: ${pedido_id}`
+        await bot.sendMessage(number, message, { media: null })
         return res.end("Payment not approved");
       } else {
-        await bot.dispatch("__Pago Procesado__", { from: number, name });
+        console.log("llegamos al aprovved")
+        // await bot.dispatch("__Pago Procesado__", { from: number, name });
+        await bot.sendMessage(number, "✅ *¡PAGO CONFIRMADO!* 🎉", { media: null })
+
+        await bot.sendMessage(number, "🍽️ Preparando tu pedido...", { media: null })
+        await prepararPedido(pedido_id)
+        const pagoProcesadoMessage = "🎉 *¡PEDIDO CONFIRMADO Y EN PREPARACIÓN!*\n\n" +
+          "✅ Tu pago ha sido procesado exitosamente\n" +
+          "👨‍🍳 Tu pedido está siendo preparado\n" +
+          `📋 Número de pedido: ${pedido_id}\n` +
+          "📞 Te contactaremos pronto para coordinar la entrega\n\n" +
+          "¡Gracias por tu compra! 🍽️"
+        await bot.sendMessage(number, pagoProcesadoMessage, { media: null })
+
 
         return res.end("Payment approved");
+      }
+      } catch (error) {
+        console.log(error)
       }
     })
   );
