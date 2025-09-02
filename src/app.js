@@ -9,8 +9,9 @@ import {
   utils,
   EVENTS,
 } from "@builderbot/bot";
-import { MysqlAdapter as Database } from "@builderbot/database-mysql";
-import { WPPConnectProvider as Provider } from "@builderbot/provider-wppconnect";
+// import { MysqlAdapter as Database } from "@builderbot/database-mysql";
+import { JsonFileDB as Database } from '@builderbot/database-json'
+import { BaileysProvider  as Provider } from "@builderbot/provider-baileys";
 import axios from "axios";
 import { idleFlow, start, reset, stop } from "./idle-custom.js";
 
@@ -675,19 +676,23 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
       try {
         reset(ctx, gotoFlow, 600000);
 
-        if (ctx.type !== "location" || !ctx.lat || !ctx.lng) {
-          return fallBack(
-            "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
-          );
-        }
+        const latitud = ctx?.message?.locationMessage?.degreesLatitude;
+const longitud = ctx?.message?.locationMessage?.degreesLongitude;
+const timestamp = ctx?.message?.messageTimestamp;
 
-        await state.update({
-          ubicacion: {
-            latitud: ctx.lat,
-            longitud: ctx.lng,
-            timestamp: ctx.timestamp,
-          },
-        });
+if (!latitud || !longitud) {
+  return fallBack(
+    "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
+  );
+}
+
+await state.update({
+  ubicacion: {
+    latitud,
+    longitud,
+    timestamp,
+  },
+});
       } catch (error) {
         console.error("Error procesando ubicación:", error);
         stop(ctx);
@@ -1518,13 +1523,14 @@ const main = async () => {
     },
   });
 
-  const adapterDB = new Database({
-    host: process.env.DB_HOST || "127.0.0.1",
-    user: process.env.DB_USER || "root",
-    database: process.env.DB_NAME || "bot",
-    password: process.env.DB_PASSWORD || "",
-    connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
-  });
+  // const adapterDB = new Database({
+  //   host: process.env.DB_HOST || "127.0.0.1",
+  //   user: process.env.DB_USER || "root",
+  //   database: process.env.DB_NAME || "bot",
+  //   password: process.env.DB_PASSWORD || "",
+  //   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
+  // });
+     const adapterDB = new Database({ filename: 'db.json' })
   const { handleCtx, httpServer } = await createBot({
     flow: adapterFlow,
     provider: adapterProvider,
