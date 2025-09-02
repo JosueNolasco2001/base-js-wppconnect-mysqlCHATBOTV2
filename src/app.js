@@ -1625,6 +1625,12 @@ const main = async () => {
     })
   );
 
+   process.on("SIGINT", async () => {
+    console.log("Cerrando bot...");
+    await adapterProvider.vendor?.ws?.close(); // cerrar socket si existe
+    process.exit(0);
+  });
+
   httpServer(+PORT);
 };
 
