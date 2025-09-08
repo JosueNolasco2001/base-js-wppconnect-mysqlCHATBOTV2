@@ -177,6 +177,28 @@ const verificarPagoPendiente = async (telefono) => {
     return { success: false }; // En caso de error, permitir continuar
   }
 };
+
+
+// Api para ver si el bot esta activo
+const verificarHorarioActivo = async () => {
+    try {
+        const horarioUrl = buildApiUrl('/api/bot/configuracion');
+        const response = await axios.get(horarioUrl, {
+            timeout: API_TIMEOUT,
+        });
+        
+        return response.data;
+    } catch (error) {
+        console.error('Error verificando horario:', error);
+        // En caso de error, asumimos que el bot está activo para no bloquear el servicio
+        return { 
+            esta_activo: true,
+            activo: true,
+            hora_inicio: '08:00',
+            hora_fin: '22:00'
+        };
+    }
+};
 // Función para obtener la fecha de hoy desde el backend
 const obtenerFechaHoy = async () => {
   try {
@@ -1386,9 +1408,23 @@ const flowRedes = addKeyword(["3"])
   });
 
 const welcomeFlow = addKeyword(EVENTS.WELCOME)
-  .addAction(async (ctx, { gotoFlow, state }) => {
+  .addAction(async (ctx, { gotoFlow, state,flowDynamic }) => {
     // LIMPIAR ESTADO AL INICIAR NUEVA CONVERSACIÓN
     await limpiarEstadoCompleto(state);
+
+      // VERIFICAR HORARIO ANTES DE CONTINUAR
+    const horario = await verificarHorarioActivo();
+    
+    if (!horario.esta_activo || !horario.activo) {
+  
+        // Si el bot no está activo, mostrar mensaje y terminar
+        const mensajeFueraHorario = 
+            `⏰ *Nuestro bot no se encuentra disponible en estos momentos*\n\n` 
+
+        
+        await flowDynamic(mensajeFueraHorario)
+        return endFlow();
+    }
     start(ctx, gotoFlow, 600000);
   })
   .addAnswer(
