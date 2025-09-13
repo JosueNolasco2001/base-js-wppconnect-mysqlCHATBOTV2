@@ -270,7 +270,7 @@ const crearSesionPago = async (pedidoData, total, pedidoId, pedidos) => {
   try {
     const paymentData = {
       name: pedidoData.nombre || "Usuario",
-      email: "josuenolascoaguilera@gmail.com", // Email simulado
+      email: "", // Email simulado
       mobile: parseInt(pedidoData.telefono.replace(/\D/g, "")), // Solo números
       description: descripcionDetallada,
       total: total,
@@ -489,7 +489,8 @@ const menuAPI = async () => {
     return structuredClone(menu); // Retornar copia para evitar modificaciones
   } catch (error) {
     console.error("[MENU] Error al obtener el menú:", error.message);
-    return menuCache || []; // Usar caché antiguo en caso de error o arreglo vacío
+     return menuCache || []; 
+  
   } finally {
     // Liberar el bloqueo
     menuRequestInProgress = false;
@@ -761,29 +762,26 @@ await state.update({
           totalFinalCotizacion: cotizacion.resumen.total_general,
         });
 
-        // Generar resumen detallado basado en la cotización
-        let resumenDetallado = `📊 *COTIZACIÓN DE TU PEDIDO*\n━━━━━━━━━━━━━━━━━━\n`;
+ // Generar resumen detallado basado en la cotización
+let resumenDetallado = `📊 *COTIZACIÓN DE TU PEDIDO*\n━━━━━━━━━━━━━━━━━━\n`;
 
-        cotizacion.detalle_platillos.forEach((platillo, index) => {
-          resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
-          resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n`;
-          resumenDetallado += `   (Base: Lps ${platillo.subtotal_base} + ISV: Lps ${platillo.subtotal_isv})\n\n`;
-        });
+cotizacion.detalle_platillos.forEach((platillo, index) => {
+  resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
+  resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n\n`;
+});
 
-        resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
-        resumenDetallado += `💰 Subtotal Base: Lps ${cotizacion.resumen.subtotal_base}\n`;
-        resumenDetallado += `📊 Total ISV: Lps ${cotizacion.resumen.total_isv}\n`;
-        resumenDetallado += `🍽️ Total Platillos: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
-        resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
-            ? "GRATIS"
-            : `Lps ${cotizacion.resumen.envio}`
-          }\n`;
-        resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
-        resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
+resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
+resumenDetallado += `💰 Subtotal: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
+resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
+    ? "GRATIS"
+    : `Lps ${cotizacion.resumen.envio}`
+  }\n`;
+resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
+resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
 
-        if (cotizacion.resumen.envio === 0) {
-          resumenDetallado += `\n🎉 ¡Envío gratis!`;
-        }
+if (cotizacion.resumen.envio === 0) {
+  resumenDetallado += `\n🎉 ¡Envío gratis!`;
+}
 
         await flowDynamic(resumenDetallado);
       } catch (error) {
