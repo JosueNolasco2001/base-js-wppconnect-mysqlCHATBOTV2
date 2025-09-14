@@ -489,7 +489,7 @@ const menuAPI = async () => {
     return structuredClone(menu); // Retornar copia para evitar modificaciones
   } catch (error) {
     console.error("[MENU] Error al obtener el menú:", error.message);
-     return menuCache || []; 
+    //  return menuCache || []; 
   
   } finally {
     // Liberar el bloqueo
