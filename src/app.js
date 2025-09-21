@@ -11,7 +11,8 @@ import {
 } from "@builderbot/bot";
 // import { MysqlAdapter as Database } from "@builderbot/database-mysql";
 import { JsonFileDB as Database } from '@builderbot/database-json'
-import { BaileysProvider  as Provider } from "@builderbot/provider-baileys";
+// import { BaileysProvider  as Provider } from "@builderbot/provider-baileys";
+import { WPPConnectProvider as Provider } from "@builderbot/provider-wppconnect";
 import axios from "axios";
 import { idleFlow, start, reset, stop } from "./idle-custom.js";
 
@@ -699,23 +700,37 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
       try {
         reset(ctx, gotoFlow, 600000);
 
-        const latitud = ctx?.message?.locationMessage?.degreesLatitude;
-const longitud = ctx?.message?.locationMessage?.degreesLongitude;
-const timestamp = ctx?.message?.messageTimestamp;
+  if (ctx.type !== "location" || !ctx.lat || !ctx.lng) {
+          return fallBack(
+            "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
+          );
+        }
+//Para baires
+//         const latitud = ctx?.message?.locationMessage?.degreesLatitude;
+// const longitud = ctx?.message?.locationMessage?.degreesLongitude;
+// const timestamp = ctx?.message?.messageTimestamp;
+  await state.update({
+          ubicacion: {
+            latitud: ctx.lat,
+            longitud: ctx.lng,
+            timestamp: ctx.timestamp,
+          },
+        });
 
-if (!latitud || !longitud) {
-  return fallBack(
-    "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
-  );
-}
+//Biares      
+// if (!latitud || !longitud) {
+//   return fallBack(
+//     "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
+//   );
+// }
 
-await state.update({
-  ubicacion: {
-    latitud,
-    longitud,
-    timestamp,
-  },
-});
+// await state.update({
+//   ubicacion: {
+//     latitud,
+//     longitud,
+//     timestamp,
+//   },
+// });
       } catch (error) {
         console.error("Error procesando ubicación:", error);
         stop(ctx);
