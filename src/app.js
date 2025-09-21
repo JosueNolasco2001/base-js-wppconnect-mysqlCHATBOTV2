@@ -1634,7 +1634,50 @@ const main = async () => {
       }
     })
   );
+adapterProvider.server.post(
+    "/v1/send-message",
+    handleCtx(async (bot, req, res) => {
+        try {
+            const { numero, mensaje } = req.body;
 
+            // Validar campos obligatorios
+            if (!numero || !mensaje) {
+                return res.end(JSON.stringify({
+                    success: false,
+                    error: "Faltan campos requeridos: numero y mensaje"
+                }));
+            }
+
+            // Formatear el número (agregar @c.us)
+            const numeroFormateado = numero.replace(/\D/g, '') + '@c.us';
+
+            console.log(`📤 Enviando mensaje a: ${numeroFormateado}`);
+            console.log(`💬 Mensaje: ${mensaje}`);
+
+            // Enviar el mensaje
+            await bot.sendMessage(numeroFormateado, mensaje, { media: null });
+
+            // Respuesta exitosa
+            return res.end(JSON.stringify({
+                success: true,
+                message: "Mensaje enviado exitosamente",
+                data: {
+                    destinatario: numeroFormateado,
+                    mensaje: mensaje
+                }
+            }));
+
+        } catch (error) {
+            console.error("❌ Error enviando mensaje:", error);
+            
+            return res.end(JSON.stringify({
+                success: false,
+                error: "Error al enviar el mensaje",
+                detalles: error.message
+            }));
+        }
+    })
+);
   adapterProvider.server.post(
     "/v1/messages",
     handleCtx(async (bot, req, res) => {
