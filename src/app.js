@@ -1396,8 +1396,8 @@ const flowAsesor = addKeyword(["2"])
     "🕘 Lunes a Viernes: 9:00 AM - 6:00 PM\n" +
     "🕘 Sábados: 10:00 AM - 2:00 PM\n\n" +
     "Puedes comunicarte con nosotros a través de:\n" +
-    "📱 Teléfono: +504 1234-5678\n" +
-    "✉️ Email: atencion@lacampana.hn\n\n" +
+    "📱 Teléfono: +504 9622-3676\n" +
+    "✉️ Email:  comercial.arsilhn@gmail.com\n\n" +
     "Estaremos encantados de atenderte personalmente." +
     "Si necesitas ayuda inmediata, escribe *HOLA* para volver al menú principal."
   )
@@ -1409,11 +1409,9 @@ const flowRedes = addKeyword(["3"])
   .addAnswer(
     "📢 *Nuestras redes sociales*\n\n" +
     "¡Síguenos para conocer nuestras promociones, novedades y más!\n\n" +
-    "📸 Instagram: @LaCampanaHN\n" +
-    "👍 Facebook: /LaCampanaHN\n" +
-    "🐦 Twitter: @LaCampanaHN\n" +
-    "📌 TikTok: @LaCampanaHN\n\n" +
-    "Visita nuestro sitio web: www.lacampana.hn" +
+    "📸 Instagram: @lacampfs\n" +
+    "👍 Facebook: /La Campaña Food Service\n" +
+   
     "¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal."
   )
   .addAction(async (ctx) => {
