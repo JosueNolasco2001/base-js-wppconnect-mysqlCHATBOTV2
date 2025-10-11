@@ -820,6 +820,28 @@ if (cotizacion.resumen.envio === 0) {
     }
   )
   .addAnswer(
+  "💳 *SELECCIÓN DE MÉTODO DE PAGO*\n\n" +
+  "¿Cómo deseas pagar?\n\n" +
+  "1️⃣ *Tarjeta* - Pago en línea seguro\n" +
+  "2️⃣ *Efectivo* - Pago al momento de la entrega",
+  { capture: true },
+  async (ctx, { fallBack, state, gotoFlow }) => {
+    if (await verificarCancelacion(ctx, state)) {
+      stop(ctx);
+      return endFlow("❌ *Operación cancelada*");
+    }
+
+    const opcion = ctx.body.trim();
+    if (opcion === '1') {
+      await state.update({ metodoPago: 'tarjeta' });
+    } else if (opcion === '2') {
+      await state.update({ metodoPago: 'efectivo' });
+    } else {
+      return fallBack("❌ Opción inválida. Responde con *1* para Tarjeta o *2* para Efectivo");
+    }
+  }
+)
+  .addAnswer(
     "¿Confirmas tu pedido completo? (responde *sí* o *no*)",
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state, flowDynamic }) => {
@@ -851,16 +873,17 @@ if (cotizacion.resumen.envio === 0) {
           );
 
           // PRIMERO: Crear el pedido para verificar disponibilidad
-          const pedidoData = {
-            nombre: nombreUsuario,
-            telefono: ctx.from,
-            latitud: myState.ubicacion.latitud,
-            longitud: myState.ubicacion.longitud,
-            platillos: myState.pedidos.map((pedido) => ({
-              id: pedido.id,
-              cantidad: pedido.cantidad,
-            })),
-          };
+    const pedidoData = {
+  nombre: nombreUsuario,
+  telefono: ctx.from,
+  latitud: myState.ubicacion.latitud,
+  longitud: myState.ubicacion.longitud,
+  metodo_pago: myState.metodoPago, // ← AGREGAR ESTA LÍNEA
+  platillos: myState.pedidos.map((pedido) => ({
+    id: pedido.id,
+    cantidad: pedido.cantidad,
+  })),
+};
 
           const pedidoUrl = buildApiUrl("/api/bot-pedido");
           const responsePedido = await fetch(pedidoUrl, {
@@ -881,6 +904,21 @@ if (cotizacion.resumen.envio === 0) {
           }
 
           const dataPedido = await responsePedido.json();
+          if (myState.metodoPago === 'efectivo') {
+  // Si es efectivo, no generar enlace de pago
+  await flowDynamic(
+    "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
+    "Tu pedido ha sido registrado exitosamente.\n" +
+    "💰 Pagarás en efectivo al momento de la entrega.\n\n" +
+    "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
+    "¡Gracias por tu compra! 🍽️"
+  );
+  
+  // Limpiar estado y terminar
+  await limpiarEstadoCompleto(state);
+  stop(ctx);
+  return endFlow();
+}
           console.log("Pedido creado:", dataPedido);
 
           if (!dataPedido.success) {
