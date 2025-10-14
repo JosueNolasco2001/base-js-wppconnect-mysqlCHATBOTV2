@@ -521,7 +521,7 @@ const mostrarResumenCarrito = (pedidos) => {
   return resumen;
 };
 
-// Flujo de pedido mejorado con soporte para múltiples pedidos
+// Flujo de pedido mejorado con soporte para múltiples pedidos Y carrito
 const flowPedido = addKeyword(["__Flujo De Pedido Completo__"])
   .addAnswer(
     "📝 *Selecciona un platillo:*\n\n" +
@@ -611,7 +611,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
 
         if (cantidad > myState.pedidoActualCantidadDisponible) {
           return fallBack(
-            `❌ No hay suficiente disponibilidad. Por favor, ingresa una cantidad menor:`
+            `❌ No hay suficiente disponibilidad. Solo quedan ${myState.pedidoActualCantidadDisponible} unidades. Por favor, ingresa una cantidad menor:`
           );
         }
 
@@ -684,6 +684,44 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
       }
     }
   )
+  // NUEVO: SELECCIÓN DE TIPO DE ENTREGA
+  .addAnswer(
+    "🏠 *SELECCIÓN DE TIPO DE ENTREGA*\n\n" +
+    "¿Dónde deseas recibir tu pedido?\n\n" +
+    "1️⃣ *Domicilio* - Te lo llevamos a tu ubicación\n" +
+    "2️⃣ *Local* - Recógelo en nuestro restaurante",
+    { capture: true },
+    async (ctx, { fallBack, state, gotoFlow, endFlow }) => {
+      if (await verificarCancelacion(ctx, state)) {
+        stop(ctx);
+        return endFlow("❌ *Operación cancelada*");
+      }
+
+      const opcion = ctx.body.trim();
+      if (opcion === '1') {
+        await state.update({ 
+          domicilio: true,
+          tipoEntrega: 'domicilio'
+        });
+      } else if (opcion === '2') {
+        await state.update({ 
+          domicilio: false,
+          tipoEntrega: 'local',
+          // Coordenadas del restaurante
+          ubicacion: {
+            latitud: 14.107193046832785,
+            longitud: -87.1824026712528
+          }
+        });
+        
+        // Para local, saltar directamente a pedir notas
+        return gotoFlow(flowNotas);
+      } else {
+        return fallBack("❌ Opción inválida. Responde con *1* para Domicilio o *2* para Local");
+      }
+    }
+  )
+  // SOLO PARA DOMICILIO - CAPTURAR UBICACIÓN
   .addAnswer(
     "📍 *Por favor, comparte tu ubicación* 📍\n\n" +
     "Usa la función de WhatsApp:\n" +
@@ -692,24 +730,19 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
     async (ctx, { state, fallBack, gotoFlow, endFlow }) => {
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
-        return endFlow(
-          "❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋"
-        );
+        return endFlow("❌ *Operación cancelada*");
       }
 
       try {
         reset(ctx, gotoFlow, 600000);
 
-  if (ctx.type !== "location" || !ctx.lat || !ctx.lng) {
+        if (ctx.type !== "location" || !ctx.lat || !ctx.lng) {
           return fallBack(
             "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
           );
         }
-//Para baires
-//         const latitud = ctx?.message?.locationMessage?.degreesLatitude;
-// const longitud = ctx?.message?.locationMessage?.degreesLongitude;
-// const timestamp = ctx?.message?.messageTimestamp;
-  await state.update({
+
+        await state.update({
           ubicacion: {
             latitud: ctx.lat,
             longitud: ctx.lng,
@@ -717,20 +750,8 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
           },
         });
 
-//Biares      
-// if (!latitud || !longitud) {
-//   return fallBack(
-//     "❌ Por favor, usa el menú de *Adjuntar → Ubicación* para compartir tu ubicación real."
-//   );
-// }
-
-// await state.update({
-//   ubicacion: {
-//     latitud,
-//     longitud,
-//     timestamp,
-//   },
-// });
+        // Después de capturar ubicación, ir a notas
+        return gotoFlow(flowNotas);
       } catch (error) {
         console.error("Error procesando ubicación:", error);
         stop(ctx);
@@ -739,7 +760,46 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
         );
       }
     }
+  );
+
+// FLUJO DE NOTAS - COMÚN PARA DOMICILIO Y LOCAL
+// FLUJO DE NOTAS - COMÚN PARA DOMICILIO Y LOCAL
+const flowNotas = addKeyword(["__capturar_notas__"])
+  .addAnswer(
+    "📝 *NOTAS ESPECIALES*\n\n" +
+    "¿Tienes alguna indicación especial para tu pedido?\n\n" +
+    "Por ejemplo:\n" +
+    "• \"Sin cebolla\"\n" +
+    "• \"Poco picante\"\n" +
+    "• \"Bien cocido\"\n" +
+    "• \"Sin sal\"\n" +
+    "• \"Extra salsa\"\n" +
+    "• \"Para llevar\"\n\n" +
+    "Si no tienes notas especiales, escribe \"no\" o \"ninguna\"",
+    { capture: true },
+    async (ctx, { state, fallBack, gotoFlow, endFlow }) => {
+      if (await verificarCancelacion(ctx, state)) {
+        stop(ctx);
+        return endFlow("❌ *Operación cancelada*");
+      }
+
+      const notas = ctx.body.trim();
+      
+      // Si el usuario escribe "no", "ninguna", "nada", etc., guardar como string vacío
+      const respuesta = notas.normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+        
+      if (["no", "ninguna", "nada", "no hay", "sin notas", "ninguno", "no gracias"].includes(respuesta)) {
+        await state.update({ notas: "" });
+      } else {
+        await state.update({ notas: notas });
+      }
+      
+      reset(ctx, gotoFlow, 600000);
+    }
   )
+  // CONTINUAR CON EL PROCESO DE COTIZACIÓN (FLUJO ORIGINAL)
   .addAnswer(
     "🚚 Generando cotización de tu pedido...",
     null,
@@ -752,12 +812,18 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
           ctx?.pushName ||
           "Usuario";
 
-        // Preparar datos para la cotización
+        // Mostrar resumen final del carrito antes de la cotización
+        // const resumenFinalCarrito = mostrarResumenCarrito(myState.pedidos);
+        // await flowDynamic(resumenFinalCarrito);
+
+        // Preparar datos para la cotización (INCLUYENDO DOMICILIO Y NOTAS)
         const cotizacionData = {
           nombre: nombreUsuario,
           telefono: ctx.from,
           latitud: myState.ubicacion.latitud,
           longitud: myState.ubicacion.longitud,
+          domicilio: myState.domicilio,
+          notas: myState.notas || "",
           platillos: myState.pedidos.map((pedido) => ({
             id: pedido.id,
             cantidad: pedido.cantidad,
@@ -777,26 +843,38 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
           totalFinalCotizacion: cotizacion.resumen.total_general,
         });
 
- // Generar resumen detallado basado en la cotización
-let resumenDetallado = `📊 *COTIZACIÓN DE TU PEDIDO*\n━━━━━━━━━━━━━━━━━━\n`;
+        // Generar resumen detallado basado en la cotización
+        let resumenDetallado = `📊 *COTIZACIÓN DE TU PEDIDO*\n━━━━━━━━━━━━━━━━━━\n`;
+        resumenDetallado += `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n`;
 
-cotizacion.detalle_platillos.forEach((platillo, index) => {
-  resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
-  resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n\n`;
-});
+        if (myState.notas && myState.notas !== "") {
+          resumenDetallado += `📝 *Notas:* ${myState.notas}\n`;
+        }
 
-resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
-resumenDetallado += `💰 Subtotal: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
-resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
-    ? "GRATIS"
-    : `Lps ${cotizacion.resumen.envio}`
-  }\n`;
-resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
-resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
+        resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
 
-if (cotizacion.resumen.envio === 0) {
-  resumenDetallado += `\n🎉 ¡Envío gratis!`;
-}
+        cotizacion.detalle_platillos.forEach((platillo, index) => {
+          resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
+          resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n\n`;
+        });
+
+        resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
+        resumenDetallado += `💰 Subtotal: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
+        
+        // Mostrar costo de envío solo para domicilio
+        if (myState.domicilio) {
+          resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
+            ? "GRATIS"
+            : `Lps ${cotizacion.resumen.envio}`
+            }\n`;
+        }
+        
+        resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
+        resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
+
+        if (myState.domicilio && cotizacion.resumen.envio === 0) {
+          resumenDetallado += `\n🎉 ¡Envío gratis!`;
+        }
 
         await flowDynamic(resumenDetallado);
       } catch (error) {
@@ -820,36 +898,34 @@ if (cotizacion.resumen.envio === 0) {
     }
   )
   .addAnswer(
-  "💳 *SELECCIÓN DE MÉTODO DE PAGO*\n\n" +
-  "¿Cómo deseas pagar?\n\n" +
-  "1️⃣ *Tarjeta* - Pago en línea seguro\n" +
-  "2️⃣ *Efectivo* - Pago al momento de la entrega",
-  { capture: true },
-  async (ctx, { fallBack, state, gotoFlow }) => {
-    if (await verificarCancelacion(ctx, state)) {
-      stop(ctx);
-      return endFlow("❌ *Operación cancelada*");
-    }
+    "💳 *SELECCIÓN DE MÉTODO DE PAGO*\n\n" +
+    "¿Cómo deseas pagar?\n\n" +
+    "1️⃣ *Tarjeta* - Pago en línea seguro\n" +
+    "2️⃣ *Efectivo* - Pago al momento de la entrega",
+    { capture: true },
+    async (ctx, { fallBack, state, gotoFlow }) => {
+      if (await verificarCancelacion(ctx, state)) {
+        stop(ctx);
+        return endFlow("❌ *Operación cancelada*");
+      }
 
-    const opcion = ctx.body.trim();
-    if (opcion === '1') {
-      await state.update({ metodoPago: 'tarjeta' });
-    } else if (opcion === '2') {
-      await state.update({ metodoPago: 'efectivo' });
-    } else {
-      return fallBack("❌ Opción inválida. Responde con *1* para Tarjeta o *2* para Efectivo");
+      const opcion = ctx.body.trim();
+      if (opcion === '1') {
+        await state.update({ metodoPago: 'tarjeta' });
+      } else if (opcion === '2') {
+        await state.update({ metodoPago: 'efectivo' });
+      } else {
+        return fallBack("❌ Opción inválida. Responde con *1* para Tarjeta o *2* para Efectivo");
+      }
     }
-  }
-)
+  )
   .addAnswer(
     "¿Confirmas tu pedido completo? (responde *sí* o *no*)",
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state, flowDynamic }) => {
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
-        return endFlow(
-          "❌ *Operación cancelada*\n\nSi deseas hacer un pedido nuevamente, escribe *HOLA* 👋"
-        );
+        return endFlow("❌ *Operación cancelada*");
       }
 
       const respuesta = ctx.body
@@ -868,22 +944,22 @@ if (cotizacion.resumen.envio === 0) {
             ctx?.pushName ||
             "Usuario";
 
-          await flowDynamic(
-            "🔄 Verificando disponibilidad y registrando pedido..."
-          );
+          await flowDynamic("🔄 Verificando disponibilidad y registrando pedido...");
 
-          // PRIMERO: Crear el pedido para verificar disponibilidad
-    const pedidoData = {
-  nombre: nombreUsuario,
-  telefono: ctx.from,
-  latitud: myState.ubicacion.latitud,
-  longitud: myState.ubicacion.longitud,
-  metodo_pago: myState.metodoPago, // ← AGREGAR ESTA LÍNEA
-  platillos: myState.pedidos.map((pedido) => ({
-    id: pedido.id,
-    cantidad: pedido.cantidad,
-  })),
-};
+          // PRIMERO: Crear el pedido para verificar disponibilidad (INCLUYENDO NUEVOS CAMPOS)
+          const pedidoData = {
+            nombre: nombreUsuario,
+            telefono: ctx.from,
+            latitud: myState.ubicacion.latitud,
+            longitud: myState.ubicacion.longitud,
+            metodo_pago: myState.metodoPago,
+            domicilio: myState.domicilio,
+            notas: myState.notas || "",
+            platillos: myState.pedidos.map((pedido) => ({
+              id: pedido.id,
+              cantidad: pedido.cantidad,
+            })),
+          };
 
           const pedidoUrl = buildApiUrl("/api/bot-pedido");
           const responsePedido = await fetch(pedidoUrl, {
@@ -904,27 +980,29 @@ if (cotizacion.resumen.envio === 0) {
           }
 
           const dataPedido = await responsePedido.json();
+          
           if (myState.metodoPago === 'efectivo') {
-  // Si es efectivo, no generar enlace de pago
-  await flowDynamic(
-    "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
-    "Tu pedido ha sido registrado exitosamente.\n" +
-    "💰 Pagarás en efectivo al momento de la entrega.\n\n" +
-    "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
-    "¡Gracias por tu compra! 🍽️"
-  );
-  
-  // Limpiar estado y terminar
-  await limpiarEstadoCompleto(state);
-  stop(ctx);
-  return endFlow();
-}
+            // Si es efectivo, no generar enlace de pago
+            await flowDynamic(
+              "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
+              "Tu pedido ha sido registrado exitosamente.\n" +
+              `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
+              (myState.notas ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
+              "💰 Pagarás en efectivo al momento de la entrega.\n\n" +
+              "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
+              "¡Gracias por tu compra! 🍽️"
+            );
+            
+            // Limpiar estado y terminar
+            await limpiarEstadoCompleto(state);
+            stop(ctx);
+            return endFlow();
+          }
+
           console.log("Pedido creado:", dataPedido);
 
           if (!dataPedido.success) {
-            throw new Error(
-              dataPedido.mensaje || "Error al registrar el pedido"
-            );
+            throw new Error(dataPedido.mensaje || "Error al registrar el pedido");
           }
 
           // Guardar el ID del pedido en el estado
@@ -971,11 +1049,9 @@ if (cotizacion.resumen.envio === 0) {
 
             try {
               const response = await fetch(pagoupdateURL, {
-                method: "PUT", // o 'POST' si así lo tienes definido en Laravel
+                method: "PUT",
                 headers: {
                   "Content-Type": "application/json",
-                  // Si necesitas autorización:
-                  // 'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(payload),
               });
@@ -998,14 +1074,6 @@ if (cotizacion.resumen.envio === 0) {
               `💰 Total a pagar: Lps ${dataPedido.total}\n\n` +
               `⏰ Verificaremos tu pago automáticamente...`
             );
-
-            // TERCERO: POLLING para verificar pago
-            const requestId = sesionPago.requestId;
-            const pedidoId = dataPedido.id;
-            const maxIntentos = 30;
-            let intentos = 0;
-            let pagoAprobado = false;
-            let estadoPago = null;
 
             await flowDynamic("🔍 Verificando el estado de tu pago...");
             stop(ctx);
@@ -1050,7 +1118,6 @@ if (cotizacion.resumen.envio === 0) {
       }
     }
   );
-
 // Flujo para generar la factura después del pago confirmado
 const flowFactura = addKeyword(["__Factura_Pago_Confirmado__"]).addAnswer(
   "🧾 Generando tu factura digital...",
@@ -1591,6 +1658,7 @@ const main = async () => {
     welcomeFlow,
     flowPedido,
     flowNoPedido,
+      flowNotas,
     idleFlow,
     flowFactura,
     pagoProcesadoCorrectamente,
