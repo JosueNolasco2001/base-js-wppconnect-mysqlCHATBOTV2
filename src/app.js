@@ -901,9 +901,12 @@ const flowNotas = addKeyword(["__capturar_notas__"])
     "💳 *SELECCIÓN DE MÉTODO DE PAGO*\n\n" +
     "¿Cómo deseas pagar?\n\n" +
     "1️⃣ *Tarjeta* - Pago en línea seguro\n" +
-    "2️⃣ *Efectivo* - Pago al momento de la entrega",
+    "2️⃣ *Efectivo* - Pago al momento de la entrega\n"+
+    "3️⃣ *Transferencia* - Transferencia bancaria",
     { capture: true },
-    async (ctx, { fallBack, state, gotoFlow }) => {
+    async (ctx, { fallBack, state, endFlow }) => {
+
+      
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
         return endFlow("❌ *Operación cancelada*");
@@ -914,7 +917,10 @@ const flowNotas = addKeyword(["__capturar_notas__"])
         await state.update({ metodoPago: 'tarjeta' });
       } else if (opcion === '2') {
         await state.update({ metodoPago: 'efectivo' });
-      } else {
+      } else if (opcion === '3') {
+            await state.update({ metodoPago: 'transferencia' }); 
+      }
+      else {
         return fallBack("❌ Opción inválida. Responde con *1* para Tarjeta o *2* para Efectivo");
       }
     }
@@ -923,6 +929,7 @@ const flowNotas = addKeyword(["__capturar_notas__"])
     "¿Confirmas tu pedido completo? (responde *sí* o *no*)",
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state, flowDynamic }) => {
+      
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
         return endFlow("❌ *Operación cancelada*");
@@ -981,24 +988,59 @@ const flowNotas = addKeyword(["__capturar_notas__"])
 
           const dataPedido = await responsePedido.json();
           
-          if (myState.metodoPago === 'efectivo') {
-            // Si es efectivo, no generar enlace de pago
-            await flowDynamic(
-              "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
-              "Tu pedido ha sido registrado exitosamente.\n" +
-              `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
-              (myState.notas ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
-              "💰 Pagarás en efectivo al momento de la entrega.\n\n" +
-              "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
-              "¡Gracias por tu compra! 🍽️"
-            );
-            
-            // Limpiar estado y terminar
+        if (myState.metodoPago === 'efectivo') {
+    // Si es efectivo, no generar enlace de pago
+    await flowDynamic(
+        "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
+        "Tu pedido ha sido registrado exitosamente.\n" +
+        `📋 *Número de pedido:* ${dataPedido.id}\n` +
+        `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
+        (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
+        `💰 *Total a pagar: Lps ${dataPedido.total}*\n\n` +
+        "💵 Pagarás en efectivo al momento de la entrega.\n\n" +
+        "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
+        "¡Gracias por tu compra! 🍽️"
+    );
+       // Limpiar estado y terminar
             await limpiarEstadoCompleto(state);
             stop(ctx);
-            return endFlow();
-          }
-
+            return endFlow()
+  }
+if (myState.metodoPago === 'transferencia') {
+    // Si es transferencia, mostrar números de cuenta
+    await flowDynamic(
+        "✅ *PEDIDO CONFIRMADO - PAGO POR TRANSFERENCIA* 🏦\n\n" +
+        "Tu pedido ha sido registrado exitosamente.\n" +
+        `📋 *Número de pedido:* ${dataPedido.id}\n` +
+        `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
+        (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
+        `💳 *Total a transferir: Lps ${dataPedido.total}*\n\n` +
+        "💰 *Realiza tu transferencia a una de nuestras cuentas:*\n\n" +
+        "🏦 *Banco Atlántida*\n" +
+        "A nombre: Comercial Arsil\n" +
+        "Cuenta: 01011018544\n\n" +
+        "🏦 *BAC*\n" +
+        "A nombre: Deanira Jeaneth Silva Ramos\n" +
+        "Cuenta: 747988621\n\n" +
+        "🏦 *Banco Ficohsa*\n" +
+        "A nombre: Mariela Ardón Silva\n" +
+        "Cuenta: 200007361008\n\n" +
+        "🏦 *Banco Davivienda*\n" +
+        "A nombre: Allan Ardón Silva\n" +
+        "Cuenta: 5070191056\n\n" +
+        "🏦 *Banco Lafise*\n" +
+        "A nombre: Allan Ardón Silva\n" +
+        "Cuenta: 114504015354\n\n" +
+        "📞 *Después de realizar la transferencia, muestra el comprobante ya sea al dueño o repartidor*\n\n" +
+        `⚠️ *Incluye el número de pedido (${dataPedido.id}) en el concepto de la transferencia*\n\n` +
+        "¡Gracias por tu compra! 🍽️"
+    );
+  
+       // Limpiar estado y terminar
+            await limpiarEstadoCompleto(state);
+            stop(ctx);
+            return endFlow()
+  }
           console.log("Pedido creado:", dataPedido);
 
           if (!dataPedido.success) {
@@ -1532,13 +1574,7 @@ const welcomeFlow = addKeyword(EVENTS.WELCOME)
     const horario = await verificarHorarioActivo();
     
     if (!horario.esta_activo || !horario.activo) {
-  
-        // Si el bot no está activo, mostrar mensaje y terminar
-        const mensajeFueraHorario = 
-            `⏰ *Nuestro bot no se encuentra disponible en estos momentos*\n\n` 
 
-        
-        await flowDynamic(mensajeFueraHorario)
         return endFlow();
     }
     start(ctx, gotoFlow, 600000);
