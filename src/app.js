@@ -200,6 +200,28 @@ const verificarHorarioActivo = async () => {
         };
     }
 };
+// Agregar esta función después de las demás funciones de utilidad
+const calcularHoraEntrega = () => {
+  const ahora = new Date();
+  const horaActual = ahora.getHours();
+  const minutosActual = ahora.getMinutes();
+  
+  // Convertir a minutos totales para fácil comparación
+  const minutosTotales = horaActual * 60 + minutosActual;
+  
+  // Definir el corte para el primer viaje (10:45 AM)
+  const cortePrimerViaje = 10 * 60 + 45; // 10:45 en minutos
+  
+  if (minutosTotales < cortePrimerViaje) {
+    // Pedidos antes de 10:45 AM - entrega entre 11:00 y 12:00
+    return "11:00 AM - 12:00 PM";
+  } else {
+    // Pedidos después de 10:45 AM - entrega entre 12:40 y 1:40 PM
+    return "12:30 PM - 12:40 PM";
+  }
+};
+
+
 // Función para obtener la fecha de hoy desde el backend
 const obtenerFechaHoy = async () => {
   try {
@@ -311,7 +333,8 @@ const obtenerCotizacion = async (pedidoData) => {
       data: pedidoData,
       timeout: API_TIMEOUT,
     });
-    return response.data;
+    return { ...response.data,      hora_entrega: calcularHoraEntrega() }
+;
   } catch (error) {
     console.error("Error obteniendo cotización:", error);
     throw error;
@@ -857,6 +880,7 @@ const flowNotas = addKeyword(["__capturar_notas__"])
           resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
           resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n\n`;
         });
+resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\n\n`;
 
         resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
         resumenDetallado += `💰 Subtotal: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
@@ -1018,10 +1042,10 @@ if (myState.metodoPago === 'transferencia') {
         "💰 *Realiza tu transferencia a una de nuestras cuentas:*\n\n" +
         "🏦 *Banco Atlántida*\n" +
         "A nombre: Comercial Arsil\n" +
-        "Cuenta: 01011018544\n\n" +
+        "Cuenta: 010111018544\n\n" + 
         "🏦 *BAC*\n" +
         "A nombre: Deanira Jeaneth Silva Ramos\n" +
-        "Cuenta: 747988621\n\n" +
+        "Cuenta: 747988621\n\n" + 
         "🏦 *Banco Ficohsa*\n" +
         "A nombre: Mariela Ardón Silva\n" +
         "Cuenta: 200007361008\n\n" +
