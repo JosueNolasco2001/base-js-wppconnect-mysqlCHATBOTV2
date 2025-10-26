@@ -1590,7 +1590,7 @@ const flowRedes = addKeyword(["3"])
   });
 
 const welcomeFlow = addKeyword(EVENTS.WELCOME)
-  .addAction(async (ctx, { gotoFlow, state,flowDynamic }) => {
+  .addAction(async (ctx, { gotoFlow, state,flowDynamic,endFlow }) => {
     // LIMPIAR ESTADO AL INICIAR NUEVA CONVERSACIÓN
     await limpiarEstadoCompleto(state);
 
