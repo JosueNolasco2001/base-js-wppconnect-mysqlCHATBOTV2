@@ -1423,101 +1423,42 @@ const MenuDelDia = addKeyword(["1"])
           }
         }, 500);
 
-        // Procesar cada platillo individualmente con manejo de errores
-        let contador = 1;
-        for (const item of data) {
-          // Si se ha cancelado, detener el procesamiento
-          if (isProcessingCancelled) break;
+        // Obtener la imagen única del menú
+        const menuImagenUrl = buildApiUrl("/admin/menu/MenuHoyImagen");
+        const menuImagenFilename = `menu_completo_${requestId}.png`;
 
-          try {
-            // Usar formato emoji para el contador
-            const numeroEmoji = contador
-              .toString()
-              .replace(/0/g, "0️⃣")
-              .replace(/1/g, "1️⃣")
-              .replace(/2/g, "2️⃣")
-              .replace(/3/g, "3️⃣")
-              .replace(/4/g, "4️⃣")
-              .replace(/5/g, "5️⃣")
-              .replace(/6/g, "6️⃣")
-              .replace(/7/g, "7️⃣")
-              .replace(/8/g, "8️⃣")
-              .replace(/9/g, "9️⃣");
+        console.log(`[MENU] Descargando imagen única desde: ${menuImagenUrl}`);
 
-            // Configurar mensaje base
-            let mensaje = `\n──────────────\n${numeroEmoji} *${item.nombre_platillo}*\n──────────────\n${item.body}`;
-            let imagePath = null;
+        try {
+          // Comprobar si el proceso ha sido cancelado
+          if (isProcessingCancelled) {
+            clearInterval(checkIntervalId);
+            return;
+          }
 
-            // Verificar si el platillo tiene una URL de imagen válida
-            if (item.imagen_url && item.imagen_filename) {
-              try {
-                // Comprobar nuevamente si el proceso ha sido cancelado antes de descargar
-                if (isProcessingCancelled) break;
+          const imagePath = await downloadImage(menuImagenUrl, menuImagenFilename);
 
-                imagePath = await downloadImage(
-                  item.imagen_url,
-                  item.imagen_filename
-                );
-
-                if (!imagePath) {
-                  mensaje += "\n\n⚠️ *Imagen no disponible*";
-                }
-              } catch (imageError) {
-                console.error(
-                  `[MENU] Error al descargar imagen para platillo ${item.nombre_platillo}:`,
-                  imageError
-                );
-                mensaje += "\n\n⚠️ *Error al cargar la imagen*";
-                imagePath = null;
-              }
-            } else {
-              mensaje += "\n\n⚠️ *Sin imagen*";
-            }
-
-            // Comprobar nuevamente si el proceso ha sido cancelado antes de enviar
-            if (isProcessingCancelled) break;
-
-            // Enviar mensaje con o sin imagen
-            if (imagePath) {
-              await flowDynamic([
-                {
-                  body: mensaje,
-                  media: imagePath,
-                },
-              ]);
-            } else {
-              // Si no hay imagen, enviar solo texto para evitar errores
-              await flowDynamic(mensaje);
-            }
-
-            contador++;
+          if (imagePath) {
+            await flowDynamic([
+              {
+                body: "📋 *Aquí tienes nuestro menú de hoy:*",
+                media: imagePath,
+              },
+            ]);
 
             // Eliminar imagen para liberar espacio
-            if (imagePath && fs.existsSync(imagePath)) {
+            if (fs.existsSync(imagePath)) {
               fs.unlink(imagePath, (err) => {
-                if (err)
-                  console.error(`[MENU] Error al eliminar ${imagePath}:`, err);
+                if (err) console.error(`[MENU] Error al eliminar ${imagePath}:`, err);
               });
             }
-          } catch (itemError) {
-            console.error(
-              `[MENU] Error al procesar platillo #${contador} en solicitud ${requestId}:`,
-              itemError
-            );
-
-            // Comprobar si el proceso ha sido cancelado antes de enviar mensaje de error
-            if (!isProcessingCancelled) {
-              try {
-                await flowDynamic(
-                  `❌ Hubo un problema al mostrar el platillo #${contador}. Continuamos con los demás...`
-                );
-              } catch (e) {
-                console.error("[MENU] Error al enviar mensaje de error:", e);
-              }
-            }
-
-            // Continuar con el siguiente platillo sin romper el flujo
-            contador++;
+          } else {
+            await flowDynamic("⚠️ No pudimos cargar la imagen del menú en este momento.");
+          }
+        } catch (error) {
+          console.error(`[MENU] Error al procesar imagen única en solicitud ${requestId}:`, error);
+          if (!isProcessingCancelled) {
+            await flowDynamic("❌ Hubo un problema al mostrar el menú.");
           }
         }
 
