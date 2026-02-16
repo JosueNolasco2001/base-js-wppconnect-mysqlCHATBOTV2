@@ -100,12 +100,16 @@ const downloadImage = async (url, filename) => {
       // Si el archivo es más antiguo que el TTL del menú, eliminarlo para forzar descarga nueva
       if (fileAgeMs > MENU_CACHE_TTL) {
         try {
-          fs.unlinkSync(filePath);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
         } catch (err) {
-          console.error(
-            `Error al eliminar archivo caché antiguo ${filename}:`,
-            err.message
-          );
+          if (err.code !== "ENOENT") {
+            console.error(
+              `Error al eliminar archivo caché antiguo ${filename}:`,
+              err.message
+            );
+          }
         }
       } else {
         downloadSemaphore.release();
@@ -182,36 +186,36 @@ const verificarPagoPendiente = async (telefono) => {
 
 // Api para ver si el bot esta activo
 const verificarHorarioActivo = async () => {
-    try {
-        const horarioUrl = buildApiUrl('/api/bot/configuracion');
-        const response = await axios.get(horarioUrl, {
-            timeout: API_TIMEOUT,
-        });
-        
-        return response.data;
-    } catch (error) {
-        console.error('Error verificando horario:', error);
-        // En caso de error, asumimos que el bot está activo para no bloquear el servicio
-        return { 
-            esta_activo: true,
-            activo: true,
-            hora_inicio: '08:00',
-            hora_fin: '22:00'
-        };
-    }
+  try {
+    const horarioUrl = buildApiUrl('/api/bot/configuracion');
+    const response = await axios.get(horarioUrl, {
+      timeout: API_TIMEOUT,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Error verificando horario:', error);
+    // En caso de error, asumimos que el bot está activo para no bloquear el servicio
+    return {
+      esta_activo: true,
+      activo: true,
+      hora_inicio: '08:00',
+      hora_fin: '22:00'
+    };
+  }
 };
 // Agregar esta función después de las demás funciones de utilidad
 const calcularHoraEntrega = () => {
   const ahora = new Date();
   const horaActual = ahora.getHours();
   const minutosActual = ahora.getMinutes();
-  
+
   // Convertir a minutos totales para fácil comparación
   const minutosTotales = horaActual * 60 + minutosActual;
-  
+
   // Definir el corte para el primer viaje (10:45 AM)
   const cortePrimerViaje = 10 * 60 + 45; // 10:45 en minutos
-  
+
   if (minutosTotales < cortePrimerViaje) {
     // Pedidos antes de 10:45 AM - entrega entre 11:00 y 12:00
     return "11:00 AM - 12:00 PM";
@@ -247,12 +251,18 @@ const obtenerFechaHoy = async () => {
 // Función para limpiar caché con mejor manejo de errores
 const cleanImageCache = () => {
   try {
+    if (!fs.existsSync(IMAGE_CACHE_DIR)) return;
     const files = fs.readdirSync(IMAGE_CACHE_DIR);
     files.forEach((file) => {
       try {
-        fs.unlinkSync(path.join(IMAGE_CACHE_DIR, file));
+        const filePath = path.join(IMAGE_CACHE_DIR, file);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       } catch (err) {
-        console.error(`Error al eliminar archivo ${file}:`, err.message);
+        if (err.code !== "ENOENT") {
+          console.error(`Error al eliminar archivo ${file}:`, err.message);
+        }
       }
     });
   } catch (err) {
@@ -333,8 +343,8 @@ const obtenerCotizacion = async (pedidoData) => {
       data: pedidoData,
       timeout: API_TIMEOUT,
     });
-    return { ...response.data,      hora_entrega: calcularHoraEntrega() }
-;
+    return { ...response.data, hora_entrega: calcularHoraEntrega() }
+      ;
   } catch (error) {
     console.error("Error obteniendo cotización:", error);
     throw error;
@@ -514,7 +524,7 @@ const menuAPI = async () => {
   } catch (error) {
     console.error("[MENU] Error al obtener el menú:", error.message);
     //  return menuCache || []; 
-  
+
   } finally {
     // Liberar el bloqueo
     menuRequestInProgress = false;
@@ -722,12 +732,12 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
 
       const opcion = ctx.body.trim();
       if (opcion === '1') {
-        await state.update({ 
+        await state.update({
           domicilio: true,
           tipoEntrega: 'domicilio'
         });
       } else if (opcion === '2') {
-        await state.update({ 
+        await state.update({
           domicilio: false,
           tipoEntrega: 'local',
           // Coordenadas del restaurante
@@ -736,7 +746,7 @@ El platillo que seleccionaste (${pedido.nombre_platillo}) ya no está disponible
             longitud: -87.1824026712528
           }
         });
-        
+
         // Para local, saltar directamente a pedir notas
         return gotoFlow(flowNotas);
       } else {
@@ -807,18 +817,18 @@ const flowNotas = addKeyword(["__capturar_notas__"])
       }
 
       const notas = ctx.body.trim();
-      
+
       // Si el usuario escribe "no", "ninguna", "nada", etc., guardar como string vacío
       const respuesta = notas.normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase();
-        
+
       if (["no", "ninguna", "nada", "no hay", "sin notas", "ninguno", "no gracias"].includes(respuesta)) {
         await state.update({ notas: "" });
       } else {
         await state.update({ notas: notas });
       }
-      
+
       reset(ctx, gotoFlow, 600000);
     }
   )
@@ -880,11 +890,11 @@ const flowNotas = addKeyword(["__capturar_notas__"])
           resumenDetallado += `${index + 1}. ${platillo.nombre}\n`;
           resumenDetallado += `   Cantidad: ${platillo.cantidad} x Lps ${platillo.precio_unitario} = Lps ${platillo.subtotal}\n\n`;
         });
-resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\n\n`;
+        resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\n\n`;
 
         resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
         resumenDetallado += `💰 Subtotal: Lps ${cotizacion.resumen.total_platillos_con_isv}\n`;
-        
+
         // Mostrar costo de envío solo para domicilio
         if (myState.domicilio) {
           resumenDetallado += `🚚 Costo de envío: ${cotizacion.resumen.envio === 0
@@ -892,7 +902,7 @@ resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\
             : `Lps ${cotizacion.resumen.envio}`
             }\n`;
         }
-        
+
         resumenDetallado += `━━━━━━━━━━━━━━━━━━\n`;
         resumenDetallado += `💳 *TOTAL A PAGAR: Lps ${cotizacion.resumen.total_general}*\n━━━━━━━━━━━━━━━━━━`;
 
@@ -925,12 +935,12 @@ resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\
     "💳 *SELECCIÓN DE MÉTODO DE PAGO*\n\n" +
     "¿Cómo deseas pagar?\n\n" +
     "1️⃣ *Tarjeta* - Pago en línea seguro\n" +
-    "2️⃣ *Efectivo* - Pago al momento de la entrega\n"+
+    "2️⃣ *Efectivo* - Pago al momento de la entrega\n" +
     "3️⃣ *Transferencia* - Transferencia bancaria",
     { capture: true },
     async (ctx, { fallBack, state, endFlow }) => {
 
-      
+
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
         return endFlow("❌ *Operación cancelada*");
@@ -942,7 +952,7 @@ resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\
       } else if (opcion === '2') {
         await state.update({ metodoPago: 'efectivo' });
       } else if (opcion === '3') {
-            await state.update({ metodoPago: 'transferencia' }); 
+        await state.update({ metodoPago: 'transferencia' });
       }
       else {
         return fallBack("❌ Opción inválida. Responde con *1* para Tarjeta o *2* para Efectivo");
@@ -953,7 +963,7 @@ resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\
     "¿Confirmas tu pedido completo? (responde *sí* o *no*)",
     { capture: true },
     async (ctx, { fallBack, gotoFlow, endFlow, state, flowDynamic }) => {
-      
+
       if (await verificarCancelacion(ctx, state)) {
         stop(ctx);
         return endFlow("❌ *Operación cancelada*");
@@ -1011,60 +1021,60 @@ resumenDetallado += `⏰ *Hora estimada de entrega:* ${cotizacion.hora_entrega}\
           }
 
           const dataPedido = await responsePedido.json();
-          
-        if (myState.metodoPago === 'efectivo') {
-    // Si es efectivo, no generar enlace de pago
-    await flowDynamic(
-        "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
-        "Tu pedido ha sido registrado exitosamente.\n" +
-        `📋 *Número de pedido:* ${dataPedido.id}\n` +
-        `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
-        (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
-        `💰 *Total a pagar: Lps ${dataPedido.total}*\n\n` +
-        "💵 Pagarás en efectivo al momento de la entrega.\n\n" +
-        "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
-        "¡Gracias por tu compra! 🍽️"
-    );
-       // Limpiar estado y terminar
+
+          if (myState.metodoPago === 'efectivo') {
+            // Si es efectivo, no generar enlace de pago
+            await flowDynamic(
+              "✅ *PEDIDO CONFIRMADO - PAGO EN EFECTIVO* 💵\n\n" +
+              "Tu pedido ha sido registrado exitosamente.\n" +
+              `📋 *Número de pedido:* ${dataPedido.id}\n` +
+              `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
+              (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
+              `💰 *Total a pagar: Lps ${dataPedido.total}*\n\n` +
+              "💵 Pagarás en efectivo al momento de la entrega.\n\n" +
+              "📞 Te contactaremos pronto para coordinar la entrega.\n\n" +
+              "¡Gracias por tu compra! 🍽️"
+            );
+            // Limpiar estado y terminar
             await limpiarEstadoCompleto(state);
             stop(ctx);
             return endFlow()
-  }
-if (myState.metodoPago === 'transferencia') {
-    // Si es transferencia, mostrar números de cuenta
-    await flowDynamic(
-        "✅ *PEDIDO CONFIRMADO - PAGO POR TRANSFERENCIA* 🏦\n\n" +
-        "Tu pedido ha sido registrado exitosamente.\n" +
-        `📋 *Número de pedido:* ${dataPedido.id}\n` +
-        `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
-        (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
-        `💳 *Total a transferir: Lps ${dataPedido.total}*\n\n` +
-        "💰 *Realiza tu transferencia a una de nuestras cuentas:*\n\n" +
-        "🏦 *Banco Atlántida*\n" +
-        "A nombre: Comercial Arsil\n" +
-        "Cuenta: 010111018544\n\n" + 
-        "🏦 *BAC*\n" +
-        "A nombre: Deanira Jeaneth Silva Ramos\n" +
-        "Cuenta: 747988621\n\n" + 
-        "🏦 *Banco Ficohsa*\n" +
-        "A nombre: Mariela Ardón Silva\n" +
-        "Cuenta: 200007361008\n\n" +
-        "🏦 *Banco Davivienda*\n" +
-        "A nombre: Allan Ardón Silva\n" +
-        "Cuenta: 5070191056\n\n" +
-        "🏦 *Banco Lafise*\n" +
-        "A nombre: Allan Ardón Silva\n" +
-        "Cuenta: 114504015354\n\n" +
-        "📞 *Después de realizar la transferencia, muestra el comprobante ya sea al dueño o repartidor*\n\n" +
-        `⚠️ *Incluye el número de pedido (${dataPedido.id}) en el concepto de la transferencia*\n\n` +
-        "¡Gracias por tu compra! 🍽️"
-    );
-  
-       // Limpiar estado y terminar
+          }
+          if (myState.metodoPago === 'transferencia') {
+            // Si es transferencia, mostrar números de cuenta
+            await flowDynamic(
+              "✅ *PEDIDO CONFIRMADO - PAGO POR TRANSFERENCIA* 🏦\n\n" +
+              "Tu pedido ha sido registrado exitosamente.\n" +
+              `📋 *Número de pedido:* ${dataPedido.id}\n` +
+              `📍 *Tipo de entrega:* ${myState.domicilio ? '🚚 Domicilio' : '🏪 Recoger en local'}\n` +
+              (myState.notas && myState.notas !== "" ? `📝 *Notas:* ${myState.notas}\n\n` : '\n') +
+              `💳 *Total a transferir: Lps ${dataPedido.total}*\n\n` +
+              "💰 *Realiza tu transferencia a una de nuestras cuentas:*\n\n" +
+              "🏦 *Banco Atlántida*\n" +
+              "A nombre: Comercial Arsil\n" +
+              "Cuenta: 010111018544\n\n" +
+              "🏦 *BAC*\n" +
+              "A nombre: Deanira Jeaneth Silva Ramos\n" +
+              "Cuenta: 747988621\n\n" +
+              "🏦 *Banco Ficohsa*\n" +
+              "A nombre: Mariela Ardón Silva\n" +
+              "Cuenta: 200007361008\n\n" +
+              "🏦 *Banco Davivienda*\n" +
+              "A nombre: Allan Ardón Silva\n" +
+              "Cuenta: 5070191056\n\n" +
+              "🏦 *Banco Lafise*\n" +
+              "A nombre: Allan Ardón Silva\n" +
+              "Cuenta: 114504015354\n\n" +
+              "📞 *Después de realizar la transferencia, muestra el comprobante ya sea al dueño o repartidor*\n\n" +
+              `⚠️ *Incluye el número de pedido (${dataPedido.id}) en el concepto de la transferencia*\n\n` +
+              "¡Gracias por tu compra! 🍽️"
+            );
+
+            // Limpiar estado y terminar
             await limpiarEstadoCompleto(state);
             stop(ctx);
             return endFlow()
-  }
+          }
           console.log("Pedido creado:", dataPedido);
 
           if (!dataPedido.success) {
@@ -1582,7 +1592,7 @@ const flowRedes = addKeyword(["3"])
     "¡Síguenos para conocer nuestras promociones, novedades y más!\n\n" +
     "📸 Instagram: @lacampfs\n" +
     "👍 Facebook: /La Campaña Food Service\n" +
-   
+
     "¡Gracias por seguirnos! Escribe *HOLA* cuando quieras volver al menú principal."
   )
   .addAction(async (ctx) => {
@@ -1590,16 +1600,16 @@ const flowRedes = addKeyword(["3"])
   });
 
 const welcomeFlow = addKeyword(EVENTS.WELCOME)
-  .addAction(async (ctx, { gotoFlow, state,flowDynamic,endFlow }) => {
+  .addAction(async (ctx, { gotoFlow, state, flowDynamic, endFlow }) => {
     // LIMPIAR ESTADO AL INICIAR NUEVA CONVERSACIÓN
     await limpiarEstadoCompleto(state);
 
-      // VERIFICAR HORARIO ANTES DE CONTINUAR
+    // VERIFICAR HORARIO ANTES DE CONTINUAR
     const horario = await verificarHorarioActivo();
-    
+
     if (!horario.esta_activo || !horario.activo) {
 
-        return endFlow();
+      return endFlow();
     }
     start(ctx, gotoFlow, 600000);
   })
@@ -1718,7 +1728,7 @@ const main = async () => {
     welcomeFlow,
     flowPedido,
     flowNoPedido,
-      flowNotas,
+    flowNotas,
     idleFlow,
     flowFactura,
     pagoProcesadoCorrectamente,
@@ -1743,7 +1753,7 @@ const main = async () => {
   //   password: process.env.DB_PASSWORD || "",
   //   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
   // });
-     const adapterDB = new Database({ filename: 'db.json' })
+  const adapterDB = new Database({ filename: 'db.json' })
   const { handleCtx, httpServer } = await createBot({
     flow: adapterFlow,
     provider: adapterProvider,
@@ -1762,86 +1772,86 @@ const main = async () => {
 
       try {
         if (status !== "approved") {
-        console.log("llegamos al !aprovved")
-        //await bot.dispatch("__Pago Incorrectamente__", { from: number, name });
-        await cancelarPedido(pedido_id);
-        const message = "⏰ * PAGO RECHAZADO*\n\n" +
-          "No pudimos confirmar tu pago en los últimos 5 minutos.\n" +
-          "El pedido ha sido cancelado automáticamente.\n\n" +
-          "💡 *¿Qué hacer?*\n" +
-          "• Si completaste el pago, contacta a soporte\n" +
-          "• Si no pagaste, puedes intentar nuevamente escribiendo *HOLA*\n\n" +
-          `📋 Referencia: ${reference || "N/A"}\n` +
-          `📋 Número de pedido cancelado: ${pedido_id}`
-        await bot.sendMessage(number, message, { media: null })
-        return res.end("Payment not approved");
-      } else {
-        console.log("llegamos al aprovved")
-        // await bot.dispatch("__Pago Procesado__", { from: number, name });
-        await bot.sendMessage(number, "✅ *¡PAGO CONFIRMADO!* 🎉", { media: null })
+          console.log("llegamos al !aprovved")
+          //await bot.dispatch("__Pago Incorrectamente__", { from: number, name });
+          await cancelarPedido(pedido_id);
+          const message = "⏰ * PAGO RECHAZADO*\n\n" +
+            "No pudimos confirmar tu pago en los últimos 5 minutos.\n" +
+            "El pedido ha sido cancelado automáticamente.\n\n" +
+            "💡 *¿Qué hacer?*\n" +
+            "• Si completaste el pago, contacta a soporte\n" +
+            "• Si no pagaste, puedes intentar nuevamente escribiendo *HOLA*\n\n" +
+            `📋 Referencia: ${reference || "N/A"}\n` +
+            `📋 Número de pedido cancelado: ${pedido_id}`
+          await bot.sendMessage(number, message, { media: null })
+          return res.end("Payment not approved");
+        } else {
+          console.log("llegamos al aprovved")
+          // await bot.dispatch("__Pago Procesado__", { from: number, name });
+          await bot.sendMessage(number, "✅ *¡PAGO CONFIRMADO!* 🎉", { media: null })
 
-        await bot.sendMessage(number, "🍽️ Preparando tu pedido...", { media: null })
-        await prepararPedido(pedido_id)
-        const pagoProcesadoMessage = "🎉 *¡PEDIDO CONFIRMADO Y EN PREPARACIÓN!*\n\n" +
-          "✅ Tu pago ha sido procesado exitosamente\n" +
-          "👨‍🍳 Tu pedido está siendo preparado\n" +
-          `📋 Número de pedido: ${pedido_id}\n` +
-          "📞 Te contactaremos pronto para coordinar la entrega\n\n" +
-          "¡Gracias por tu compra! 🍽️"
-        await bot.sendMessage(number, pagoProcesadoMessage, { media: null })
+          await bot.sendMessage(number, "🍽️ Preparando tu pedido...", { media: null })
+          await prepararPedido(pedido_id)
+          const pagoProcesadoMessage = "🎉 *¡PEDIDO CONFIRMADO Y EN PREPARACIÓN!*\n\n" +
+            "✅ Tu pago ha sido procesado exitosamente\n" +
+            "👨‍🍳 Tu pedido está siendo preparado\n" +
+            `📋 Número de pedido: ${pedido_id}\n` +
+            "📞 Te contactaremos pronto para coordinar la entrega\n\n" +
+            "¡Gracias por tu compra! 🍽️"
+          await bot.sendMessage(number, pagoProcesadoMessage, { media: null })
 
 
-        return res.end("Payment approved");
-      }
+          return res.end("Payment approved");
+        }
       } catch (error) {
         console.log(error)
       }
     })
   );
-adapterProvider.server.post(
+  adapterProvider.server.post(
     "/v1/send-message",
     handleCtx(async (bot, req, res) => {
-        try {
-            const { numero, mensaje } = req.body;
+      try {
+        const { numero, mensaje } = req.body;
 
-            // Validar campos obligatorios
-            if (!numero || !mensaje) {
-                return res.end(JSON.stringify({
-                    success: false,
-                    error: "Faltan campos requeridos: numero y mensaje"
-                }));
-            }
-
-            // Formatear el número (agregar @c.us)
-            const numeroFormateado = numero.replace(/\D/g, '') + '@c.us';
-
-            console.log(`📤 Enviando mensaje a: ${numeroFormateado}`);
-            console.log(`💬 Mensaje: ${mensaje}`);
-
-            // Enviar el mensaje
-            await bot.sendMessage(numeroFormateado, mensaje, { media: null });
-
-            // Respuesta exitosa
-            return res.end(JSON.stringify({
-                success: true,
-                message: "Mensaje enviado exitosamente",
-                data: {
-                    destinatario: numeroFormateado,
-                    mensaje: mensaje
-                }
-            }));
-
-        } catch (error) {
-            console.error("❌ Error enviando mensaje:", error);
-            
-            return res.end(JSON.stringify({
-                success: false,
-                error: "Error al enviar el mensaje",
-                detalles: error.message
-            }));
+        // Validar campos obligatorios
+        if (!numero || !mensaje) {
+          return res.end(JSON.stringify({
+            success: false,
+            error: "Faltan campos requeridos: numero y mensaje"
+          }));
         }
+
+        // Formatear el número (agregar @c.us)
+        const numeroFormateado = numero.replace(/\D/g, '') + '@c.us';
+
+        console.log(`📤 Enviando mensaje a: ${numeroFormateado}`);
+        console.log(`💬 Mensaje: ${mensaje}`);
+
+        // Enviar el mensaje
+        await bot.sendMessage(numeroFormateado, mensaje, { media: null });
+
+        // Respuesta exitosa
+        return res.end(JSON.stringify({
+          success: true,
+          message: "Mensaje enviado exitosamente",
+          data: {
+            destinatario: numeroFormateado,
+            mensaje: mensaje
+          }
+        }));
+
+      } catch (error) {
+        console.error("❌ Error enviando mensaje:", error);
+
+        return res.end(JSON.stringify({
+          success: false,
+          error: "Error al enviar el mensaje",
+          detalles: error.message
+        }));
+      }
     })
-);
+  );
   adapterProvider.server.post(
     "/v1/messages",
     handleCtx(async (bot, req, res) => {
@@ -1881,7 +1891,7 @@ adapterProvider.server.post(
     })
   );
 
-   process.on("SIGINT", async () => {
+  process.on("SIGINT", async () => {
     console.log("Cerrando bot...");
     await adapterProvider.vendor?.ws?.close(); // cerrar socket si existe
     process.exit(0);
