@@ -1423,42 +1423,37 @@ const MenuDelDia = addKeyword(["1"])
           }
         }, 500);
 
-        // Obtener la imagen única del menú
-        const menuImagenUrl = buildApiUrl("/admin/menu/MenuHoyImagen");
-        const menuImagenFilename = `menu_completo_${requestId}.png`;
+        // Obtener la imagen única del menú (Paginada de 5 en 5)
+        const totalPartes = Math.ceil(data.length / 5);
+        console.log(`[MENU] Generando ${totalPartes} partes para ${data.length} platillos`);
 
-        console.log(`[MENU] Descargando imagen única desde: ${menuImagenUrl}`);
+        for (let p = 1; p <= totalPartes; p++) {
+          // Comprobar si el proceso ha sido cancelado antes de cada parte
+          if (isProcessingCancelled) break;
 
-        try {
-          // Comprobar si el proceso ha sido cancelado
-          if (isProcessingCancelled) {
-            clearInterval(checkIntervalId);
-            return;
-          }
+          const menuImagenUrl = buildApiUrl(`/admin/menu/MenuHoyImagen?parte=${p}`);
+          const menuImagenFilename = `menu_parte_${p}_${requestId}.png`;
 
-          const imagePath = await downloadImage(menuImagenUrl, menuImagenFilename);
+          try {
+            const imagePath = await downloadImage(menuImagenUrl, menuImagenFilename);
 
-          if (imagePath) {
-            await flowDynamic([
-              {
-                body: "📋 *Aquí tienes nuestro menú de hoy:*",
-                media: imagePath,
-              },
-            ]);
+            if (imagePath) {
+              await flowDynamic([
+                {
+                  body: totalPartes > 1 ? `📋 *Menú de hoy (Parte ${p}/${totalPartes}):*` : "📋 *Aquí tienes nuestro menú de hoy:*",
+                  media: imagePath,
+                },
+              ]);
 
-            // Eliminar imagen para liberar espacio
-            if (fs.existsSync(imagePath)) {
-              fs.unlink(imagePath, (err) => {
-                if (err) console.error(`[MENU] Error al eliminar ${imagePath}:`, err);
-              });
+              // Eliminar imagen para liberar espacio
+              if (fs.existsSync(imagePath)) {
+                fs.unlink(imagePath, (err) => {
+                  if (err) console.error(`[MENU] Error al eliminar ${imagePath}:`, err);
+                });
+              }
             }
-          } else {
-            await flowDynamic("⚠️ No pudimos cargar la imagen del menú en este momento.");
-          }
-        } catch (error) {
-          console.error(`[MENU] Error al procesar imagen única en solicitud ${requestId}:`, error);
-          if (!isProcessingCancelled) {
-            await flowDynamic("❌ Hubo un problema al mostrar el menú.");
+          } catch (error) {
+            console.error(`[MENU] Error al procesar parte ${p} en solicitud ${requestId}:`, error);
           }
         }
 
